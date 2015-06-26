@@ -1,26 +1,22 @@
-#include <ddraw.h>
 #include <stdlib.h>
 #include <math.h>
 #include "tiro.h"
 
-const cCoisaNaTela = 0;
-const cNave = 1;
-const cMaximoVida = 1000;
-const cVidaInimigo = 5;
-const cVidaMeteoro = 1;
-const cVidaChuva = 50;
-const cVidaMissil = 1;
-const cRandoms = 100;
+const int cCoisaNaTela = 0;
+const int cNave = 1;
+const int cMaximoVida = 1000;
+const int cVidaInimigo = 5;
+const int cVidaMeteoro = 1;
+const int cVidaMissil = 1;
 
-const cPontosInimigo = 5;
-const cPontosMeteoro = 1;
-const cPontosMetralha = 20;
-const cPontosChuva = 100;
-const cMaximoCarga = 1000;
+const int cPontosInimigo = 5;
+const int cPontosMeteoro = 1;
+const int cPontosMetralha = 20;
+const int cPontosChuva = 100;
+const int cMaximoCarga = 1000;
 
 const double cPI = 3.141592;
 const double cConverte = cPI/180; // pi/180
-const double cDPI = cPI*2; // 2*pi
 
 int PopulacaoInimigo = 0;
 int PopulacaoJogador = 0;
@@ -39,6 +35,7 @@ int random(int Maximo) {
 void InsereDestroco(int X, int Y);
 
 double AnguloDir(double X, double Y);
+class Lista;
 
 // ---------------------------------------------------------------------
 // ------------------------Definicoes de classe-------------------------
