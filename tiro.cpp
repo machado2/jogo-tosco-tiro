@@ -25,14 +25,18 @@ int Excluidos = 0;
 int BarraEnergia;
 int JogX, JogY;
 int Continua;
-int Tempo = 0;
 int Carga = 0;
+uint64_t num_frame;
 
 int random(int Maximo) {
-	return rand() * Maximo / RAND_MAX;
+	return rand() % Maximo;
 }
 
 void InsereDestroco(int X, int Y);
+
+int Temporiza(uint16_t num) {
+	return (num_frame % num) == 0;
+}
 
 double AnguloDir(double X, double Y);
 class Lista;
@@ -248,10 +252,6 @@ int Distancia(double x1, double y1, double x2, double y2) {
    if (!dx) return (int) dy;
    if (!dy) return (int) dx;
    return (int) sqrt(dx*dx+dy*dy);
-}
-
-int Temporiza(int X) {
-   return !(Tempo % X);
 }
 
 double AnguloDir(double X, double Y) {
@@ -870,8 +870,8 @@ void DesenhaBarra(int Y1, int Altura, int Valor, int Maximo, int Cor) {
 }
 
 void MostraPontos() {
-   DesenhaBarra(1, 4, BarraEnergia, cMaximoVida, 1);
-   DesenhaBarra(7, 4, Carga, cMaximoCarga, 4);
+   DesenhaBarra(1, 4, BarraEnergia, cMaximoVida, RGB(255,0,0));
+   DesenhaBarra(7, 4, Carga, cMaximoCarga, RGB(0,0,255));
 }
 
 
@@ -923,11 +923,7 @@ void InsereInimigo(int Qtd = 1) {
 }
 
 int Possib(int Desvio, int Prob) {
-   int Resposta;
-   Tempo += Desvio;
-   Resposta = Temporiza(500) && (random(100) < Prob);
-   Tempo -= Desvio;
-   return Resposta;
+   return (((num_frame + Desvio) % 500 == 0) && (random(100) < Prob));
 }
 
 void InsereRedemoinho() {
@@ -971,7 +967,7 @@ void ProcessaJogo() {
 	DistribuiPancadas(&ListaAmigos, &ListaInimigos);
 	Desenha();
 	if (PopulacaoJogador) IncluiInimigos();
-	Tempo++;
+	num_frame++;
  }
 
 int CoisaNaTela::PosX() {

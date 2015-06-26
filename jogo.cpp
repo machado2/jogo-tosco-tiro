@@ -5,55 +5,55 @@
 #include <sstream>
 #include <stdio.h>
 #include "tiro.h"
+#include "jogo.h"
 
 using namespace std;
 
-class Janela {
-	private:
-		SDL_Window *sdlwin = NULL;
-		SDL_Surface *surf = NULL;
-	public:
-		Janela() {
-			if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER)) goto errosdl;
-			sdlwin = SDL_CreateWindow("Jogo Tosco de dar Tiro", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 640, 480, SDL_WINDOW_SHOWN);
-			if (sdlwin == NULL) goto errosdl;
-			surf = SDL_GetWindowSurface(sdlwin);
-			if (surf == NULL) goto errosdl;
-			atexit(SDL_Quit);
-			return;
+Janela::Janela() {
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER)) goto errosdl;
+	sdlwin = SDL_CreateWindow("Jogo Tosco de dar Tiro", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 640, 480, SDL_WINDOW_SHOWN);
+	if (sdlwin == NULL) goto errosdl;
+	surf = SDL_GetWindowSurface(sdlwin);
+	if (surf == NULL) goto errosdl;
+	atexit(SDL_Quit);
+	return;
 errosdl:
-			cerr << "Erro inicializando SDL\n";
-			exit(1);
-		}
-		void Desenha(SDL_Surface *img, int x, int y, int w, int h) {
-			SDL_Rect r;
-			r.x = x;
-			r.y = y;
-			r.w = w;
-			r.h = h;
-			SDL_BlitSurface(img, NULL, surf, &r);
-		}
-		void DesenhaCaixa(int x, int y, int largura, int altura, uint32_t cor) {
-			SDL_Rect r;
-			r.x = x;
-			r.y = y;
-			r.w = largura;
-			r.h = altura;
-			SDL_FillRect(surf, &r, cor); 
-		}
-		~Janela() {
-			SDL_DestroyWindow(sdlwin);
-		}
-		uint32_t rgb(uint8_t r, uint8_t g, uint8_t b) {
-			return SDL_MapRGB(surf->format, r, g, b);
-		}
-		void ProcessaFrame() {
-			ProcessaJogo();
-			SDL_UpdateWindowSurface(sdlwin);
-		}
-};
+	cerr << "Erro inicializando SDL\n";
+	exit(1);
+}
+void Janela::Desenha(SDL_Surface *img, int x, int y, int w, int h) {
+	SDL_Rect r;
+	r.x = x;
+	r.y = y;
+	r.w = w;
+	r.h = h;
+	SDL_BlitSurface(img, NULL, surf, &r);
+}
+void Janela::DesenhaCaixa(int x, int y, int largura, int altura, uint32_t cor) {
+	SDL_Rect r;
+	r.x = x;
+	r.y = y;
+	r.w = largura;
+	r.h = altura;
+	SDL_FillRect(surf, &r, cor); 
+}
+Janela::~Janela() {
+	SDL_DestroyWindow(sdlwin);
+}
+uint32_t Janela::rgb(uint8_t r, uint8_t g, uint8_t b) {
+	return SDL_MapRGB(surf->format, r, g, b);
+}
+void Janela::ProcessaFrame() {
+	SDL_FillRect(surf, NULL, 0); 
+	ProcessaJogo();
+	SDL_UpdateWindowSurface(sdlwin);
+}
 
 Janela janela;
+
+void Janela::Escreve(const char *texto) {
+
+}
 
 uint32_t RGB(uint8_t r, uint8_t g, uint8_t b) {
 	return janela.rgb(r, g, b);
@@ -83,7 +83,6 @@ class Imagem {
 			Largura = TamX;
 		}
 		void Desenha(int X, int Y) {
-			cout << "desenhando " << nom << " em " << X << ", " << Y << "\n";
 			janela.Desenha(surf, X, Y, Largura, Altura);
 		}
 };
@@ -96,7 +95,6 @@ Imagem Bola, Foguete, Metralha, Inimigo, Estrela, Chuva, Meteoro;
 
 void CarregaRecursos() {
 	int i;
-	char Nome[80];
 	Bola = Imagem(10, 10, "bola.bmp");
 	Foguete = Imagem(48, 48, "foguete.bmp");
 	Metralha = Imagem(48, 48, "metralha.bmp");
@@ -106,8 +104,8 @@ void CarregaRecursos() {
 	Meteoro = Imagem(5, 5, "meteoro.bmp");
 	for (i = 0; i < 3; i++) {
 		ostringstream oss;
-		oss << "BOLA" << (i+1);
-		Boloes[i] = Imagem(TamBolao(i), TamBolao(i), Nome);
+		oss << "bola" << (i+1) << ".bmp";
+		Boloes[i] = Imagem(TamBolao(i), TamBolao(i), oss.str().c_str());
 	}
 }
 
@@ -141,10 +139,10 @@ void DesenhaFoguete(int X, int Y) {
 
 int TamBolao(int Nivel) {
 	switch (Nivel) {
-	case 0: return 20;
-	case 1: return 18;
-	case 2: return 14;
-	case 3: return 10;
+		case 0: return 20;
+		case 1: return 18;
+		case 2: return 14;
+		case 3: return 10;
 	}
 	return 0;
 }
@@ -173,28 +171,31 @@ uint32_t tictac(uint32_t i, void *p) {
 int main(int argc, char **argv) {
 	SDL_Event evento;
 	SDL_AddTimer(30, tictac, NULL);
-	freopen("CON", "w", stdout); // redirects stdout
-	freopen("CON", "w", stderr); // redirects stderr
-	for (;;) 
-		while (SDL_PollEvent(&evento)) {
-			if (evento.type == SDL_QUIT)
-				return 0;
-			if (evento.type == SDL_KEYDOWN && evento.key.keysym.sym == SDLK_ESCAPE)
-				return 0;
-			if (evento.type == SDL_MOUSEMOTION) {
-				CursorX = evento.motion.x;
-				CursorY = evento.motion.y;
-			}
-			if (evento.type == SDL_MOUSEBUTTONDOWN || evento.type == SDL_MOUSEBUTTONUP) {
-				if (evento.button.button == SDL_BUTTON_LEFT)
-					BotaoE = evento.button.state;
-				if (evento.button.button == SDL_BUTTON_RIGHT)
-					BotaoD = evento.button.state;
-			}
-			if (evento.type == SDL_USEREVENT) {
-				janela.ProcessaFrame();
-				SDL_AddTimer(30, tictac, NULL);
-			}
-		} 
+	try {
+		CarregaRecursos();
+		for (;;) 
+			while (SDL_PollEvent(&evento)) {
+				if (evento.type == SDL_QUIT)
+					return 0;
+				if (evento.type == SDL_KEYDOWN && evento.key.keysym.sym == SDLK_ESCAPE)
+					return 0;
+				if (evento.type == SDL_MOUSEMOTION) {
+					CursorX = evento.motion.x;
+					CursorY = evento.motion.y;
+				}
+				if (evento.type == SDL_MOUSEBUTTONDOWN || evento.type == SDL_MOUSEBUTTONUP) {
+					if (evento.button.button == SDL_BUTTON_LEFT)
+						BotaoE = evento.button.state;
+					if (evento.button.button == SDL_BUTTON_RIGHT)
+						BotaoD = evento.button.state;
+				}
+				if (evento.type == SDL_USEREVENT) {
+					janela.ProcessaFrame();
+					SDL_AddTimer(30, tictac, NULL);
+				}
+			} 
+	} catch (string s) {
+		cerr << s << "\n";
+	}
 }
-			
+

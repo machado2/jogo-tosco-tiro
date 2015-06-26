@@ -1,4 +1,5 @@
-set (CMAKE_C_FLAGS -Werror -Wall)
+set (CMAKE_C_FLAGS "-Werror -Wall")
+set (CMAKE_CXX_FLAGS "-Werror -Wall")
 add_executable(tiro jogo.cpp tiro.cpp)
 INCLUDE(FindPkgConfig)
 
