@@ -1,8 +1,8 @@
-set (CMAKE_C_FLAGS "-Werror -Wall")
-set (CMAKE_CXX_FLAGS "-Werror -Wall")
-add_executable(tiro jogo.cpp tiro.cpp)
-INCLUDE(FindPkgConfig)
+cmake_minimum_required(VERSION 2.8.12)
 
-PKG_SEARCH_MODULE(SDL2 REQUIRED sdl2)
-INCLUDE_DIRECTORIES(${SDL2_INCLUDE_DIRS})
-TARGET_LINK_LIBRARIES(tiro ${SDL2_LIBRARIES})
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_basic_setup()
+
+add_executable(tiro jogo.cpp tiro.cpp)
+
+target_link_libraries(tiro ${CONAN_LIBS})
