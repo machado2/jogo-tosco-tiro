@@ -317,9 +317,10 @@ void Lista::Exclui(CoisaNaTela *Coisa) {
             Primeiro = Contador->Proximo();
          delete Contador;
          return;
-      } else
+      } else {
          Anterior = Contador;
          Contador = Contador->Proximo();
+      }
    }
 }
 
