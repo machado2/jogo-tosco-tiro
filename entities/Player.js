@@ -45,22 +45,8 @@ class Player extends Entity {
         if (this.charge >= MAX_CHARGE && this.energy < MAX_HEALTH && temporizes(10)) this.energy++;
         if (engineFlamesEnabled && temporizes(2)) { if (typeof maybeEmitEngineFlame === 'function') maybeEmitEngineFlame(this, -4); else debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2 - 4)); }
         try {
-            if (highlightLayer && this.mesh) {
-                const base = new BABYLON.Color3(0.12, 0.4, 0.8);
-                let color = base;
-                if (this.charge >= MAX_CHARGE * 0.8) {
-                    const pulse = 0.75 + 0.25 * Math.sin(gameState.numFrame * 0.15);
-                    color = new BABYLON.Color3(base.r * pulse, base.g * pulse, base.b * pulse);
-                }
-                if (this.mesh.getChildren && !(this.mesh instanceof BABYLON.AbstractMesh)) {
-                    this.mesh.getChildren().filter(m => m instanceof BABYLON.Mesh).forEach(m => { try { highlightLayer.addMesh(m, color); } catch {} });
-                } else { try { highlightLayer.addMesh(this.mesh, color); } catch {} }
-            }
-            if (this.engineGlow && this.engineGlow.material) {
-                const baseColor = new BABYLON.Color3(1.0, 0.5, 0.1);
-                const pulseFactor = this.charge >= MAX_CHARGE * 0.8 ? (0.3 + 0.7 * (0.5 + 0.5 * Math.sin(gameState.numFrame * 0.2))) : 0.25;
-                try { this.engineGlow.material.emissiveColor = baseColor.scale(pulseFactor); } catch {}
-            }
+            if (typeof updatePlayerHighlight === 'function') { updatePlayerHighlight(this); }
+            if (typeof updateEngineGlow === 'function') { updateEngineGlow(this); }
         } catch {}
         gameState.playerHealth = this.energy; gameState.playerCharge = this.charge; gameState.playerX = this.x; gameState.playerY = this.y;
         if (typeof window !== 'undefined' && typeof window.syncEntityVisual === 'function') { try { window.syncEntityVisual(this); } catch {} } else { this.updateMeshPosition(); this.updateBodyFromEntity(); }
