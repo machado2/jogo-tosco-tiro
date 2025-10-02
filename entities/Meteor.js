@@ -8,10 +8,10 @@ class Meteor extends Entity {
             case 3: this.x = random(SCREEN_WIDTH - 10); this.y = SCREEN_HEIGHT - 10; angle = between(225, 315); break; }
         angle *= Math.PI / 180; this.dirX = Math.floor(200 * Math.cos(angle)); this.dirY = Math.floor(200 * Math.sin(angle)); this.incX = sign(this.dirX); this.incY = sign(this.dirY);
         this.dirX = Math.abs(this.dirX); this.dirY = Math.abs(this.dirY); this.restoX = 0; this.restoY = 0;
-        this.mesh = buildMeteorMesh(); fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition(); this.updateBodyFromEntity();
+        this.mesh = buildMeteorMesh(); fitMeshToPixels(this.mesh, this.width, this.height); if (typeof window !== 'undefined' && typeof window.syncEntityVisual === 'function') { try { window.syncEntityVisual(this); } catch {} } else { this.updateMeshPosition(); this.updateBodyFromEntity(); }
     }
-    update() { this.restoX += this.dirX; this.restoY += this.dirY; while (this.restoX >= 100) { this.restoX -= 100; this.x += this.incX; } while (this.restoY >= 100) { this.restoY -= 100; this.y += this.incY; } if (this.isOffScreen()) this.destroy(); this.updateMeshPosition(); this.updateBodyFromEntity(); }
-    onDestroy() { gameState.score += POINTS_METEOR; try { audioSystem.playExplosion(); } catch {} triggerShake(0.8, 6); }
+    update() { this.restoX += this.dirX; this.restoY += this.dirY; while (this.restoX >= 100) { this.restoX -= 100; this.x += this.incX; } while (this.restoY >= 100) { this.restoY -= 100; this.y += this.incY; } if (this.isOffScreen()) this.destroy(); if (typeof window !== 'undefined' && typeof window.syncEntityVisual === 'function') { try { window.syncEntityVisual(this); } catch {} } else { this.updateMeshPosition(); this.updateBodyFromEntity(); } }
+    onDestroy() { gameState.score += POINTS_METEOR; if (typeof playGameSound === 'function') { try { playGameSound('explosion'); } catch {} } triggerShake(0.8, 6); }
 }
 
 window.Meteor = Meteor;

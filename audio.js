@@ -97,10 +97,12 @@ class AudioSystem {
 
 // Global instance
 const audioSystem = new AudioSystem();
+// Attach to window for other scripts
+window.audioSystem = audioSystem;
 
 function playGameSound(name) {
-  try { if (window.audioSystem) { audioSystem.init(); } } catch {}
-  if (!window.audioSystem || !audioSystem.initialized || audioSystem.muted) return;
+  try { audioSystem.init(); } catch {}
+  if (!audioSystem.initialized || audioSystem.muted) return;
   switch (name) {
     case 'hit': audioSystem.playHit(); break;
     case 'impact': audioSystem.playImpact(); break;

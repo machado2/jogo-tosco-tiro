@@ -6,7 +6,7 @@ class Nuclear extends Missile {
         this.mesh.dispose(); const size = 1 + level * 0.5;
         this.mesh = BABYLON.MeshBuilder.CreateSphere("nuclear", { diameter: size }, scene);
         this.mesh.material = createMaterial("nuclear", new BABYLON.Color3(1, 0, 0)); this.mesh.renderingGroupId = 1;
-        fitMeshToPixels(this.mesh, this.width, this.height); registerGlowMesh(this.mesh); this.updateMeshPosition(); this.updateBodyFromEntity();
+        fitMeshToPixels(this.mesh, this.width, this.height); registerGlowMesh(this.mesh); if (typeof window !== 'undefined' && typeof window.syncEntityVisual === 'function') { try { window.syncEntityVisual(this); } catch {} } else { this.updateMeshPosition(); this.updateBodyFromEntity(); }
     }
     onDestroy() {
         if (this.level >= 3) return;

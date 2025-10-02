@@ -11,14 +11,14 @@ class Debris extends Entity {
         this.dist = random(60);
         this.mesh = debrisBaseMesh.createInstance("debrisInst");
         this.mesh.setEnabled(true);
-        this.updateMeshPosition(); this.updateBodyFromEntity();
+        if (typeof window !== 'undefined' && typeof window.syncEntityVisual === 'function') { try { window.syncEntityVisual(this); } catch {} } else { this.updateMeshPosition(); this.updateBodyFromEntity(); }
     }
     update() {
         this.restoX += this.dirX; this.restoY += this.dirY;
         while (this.restoX > 100) { this.restoX -= 100; this.x += this.incX; }
         while (this.restoY > 100) { this.restoY -= 100; this.y += this.incY; }
         this.dist--; if (this.dist < 1) this.destroy();
-        this.updateMeshPosition(); this.updateBodyFromEntity();
+        if (typeof window !== 'undefined' && typeof window.syncEntityVisual === 'function') { try { window.syncEntityVisual(this); } catch {} } else { this.updateMeshPosition(); this.updateBodyFromEntity(); }
     }
     destroy() {
         if (!this.alive) return; this.alive = false;
