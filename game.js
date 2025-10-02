@@ -2,8 +2,9 @@
 // Converted from C++/SDL2 to JavaScript/Babylon.js
 
 // Constants
-const MAX_HEALTH = 1000;
+const MAX_HEALTH = 100;
 const MAX_CHARGE = 1000;
+const CHARGE_REFILL_PER_FRAME = 0.3;
 const ENEMY_HEALTH = 5;
 const METEOR_HEALTH = 1;
 const MISSILE_HEALTH = 1;
@@ -13,6 +14,9 @@ const POINTS_METRALHA = 20;
 const POINTS_CHUVA = 100;
 const SCREEN_WIDTH = 640;
 const SCREEN_HEIGHT = 480;
+const MAX_DEBRIS_TOTAL = 600;
+const MAX_DEBRIS_PER_EVENT = 80;
+const DEATH_OVERLAY_DELAY_FRAMES = 90; // ~1.5s at 60fps
 
 // Global game state
 let scene, engine, camera;
@@ -29,7 +33,8 @@ let gameState = {
     leftButton: false,
     rightButton: false,
     enemyPopulation: 0,
-    playerAlive: true
+    playerAlive: true,
+    deathSequenceFrames: 0
 };
 
 // Entity lists
@@ -39,6 +44,11 @@ let debrisEntities = [];
 
 // Materials cache
 let materials = {};
+
+// Debris pool
+let debrisBaseMesh = null;
+let debrisMaterial = null;
+let totalDebrisCount = 0;
 
 // Utility functions
 function random(max) {
@@ -81,6 +91,16 @@ function createMaterial(name, color) {
     mat.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
     materials[name] = mat;
     return mat;
+}
+
+function initDebrisPool() {
+    if (debrisBaseMesh) return;
+    debrisBaseMesh = BABYLON.MeshBuilder.CreateBox("debrisBase", { size: 0.5 }, scene);
+    debrisMaterial = new BABYLON.StandardMaterial("debrisMat", scene);
+    debrisMaterial.emissiveColor = new BABYLON.Color3(1, 1, 1);
+    debrisMaterial.disableLighting = true;
+    debrisBaseMesh.material = debrisMaterial;
+    debrisBaseMesh.setEnabled(false);
 }
 
 // Scale a mesh so its bounding box matches desired pixel width/height
@@ -142,8 +162,11 @@ class Entity {
     destroy() {
         this.alive = false;
         if (this.releaseDebris && !this.isOffScreen()) {
-            for (let i = 0; i < this.releaseDebris; i++) {
+            const available = Math.max(0, MAX_DEBRIS_TOTAL - totalDebrisCount);
+            const toEmit = Math.min(this.releaseDebris, MAX_DEBRIS_PER_EVENT, available);
+            for (let i = 0; i < toEmit; i++) {
                 debrisEntities.push(new Debris(this.x, this.y));
+                totalDebrisCount++;
             }
         }
         if (this.mesh) {
@@ -179,14 +202,11 @@ class Debris extends Entity {
         this.incY = sign(this.dirY);
         this.dirX = Math.abs(this.dirX);
         this.dirY = Math.abs(this.dirY);
-        this.dist = random(100);
-        this.color = new BABYLON.Color3(Math.random(), Math.random(), Math.random());
+        this.dist = random(60);
         
-        // Create mesh
-        this.mesh = BABYLON.MeshBuilder.CreateBox("debris", { size: 0.5 }, scene);
-        const mat = new BABYLON.StandardMaterial("debrisMat" + Math.random(), scene);
-        mat.emissiveColor = this.color;
-        this.mesh.material = mat;
+        // Use instanced mesh from pool
+        this.mesh = debrisBaseMesh.createInstance("debrisInst");
+        this.mesh.setEnabled(true);
         this.updateMeshPosition();
     }
 
@@ -207,6 +227,16 @@ class Debris extends Entity {
         if (this.dist < 1) this.destroy();
         this.updateMeshPosition();
     }
+
+    destroy() {
+        if (!this.alive) return;
+        this.alive = false;
+        if (this.mesh) {
+            this.mesh.dispose();
+            this.mesh = null;
+        }
+        totalDebrisCount = Math.max(0, totalDebrisCount - 1);
+    }
 }
 
 // Player
@@ -216,7 +246,7 @@ class Player extends Entity {
         this.energy = MAX_HEALTH;
         this.charge = MAX_CHARGE;
         this.shootTime = 0;
-        this.releaseDebris = 500;
+        this.releaseDebris = 80;
         
         // Create player mesh - spaceship
         const body = BABYLON.MeshBuilder.CreateBox("playerBody", { width: 3, height: 4, depth: 2 }, scene);
@@ -251,7 +281,7 @@ class Player extends Entity {
             this.keepOnScreen();
         }
 
-        if (this.charge < MAX_CHARGE) this.charge++;
+        if (this.charge < MAX_CHARGE) this.charge = Math.min(MAX_CHARGE, this.charge + CHARGE_REFILL_PER_FRAME);
         if (this.shootTime < 1000) this.shootTime++;
 
         // Shooting
@@ -286,7 +316,7 @@ class Player extends Entity {
         }
 
         // Regenerate health
-        if (this.charge === MAX_CHARGE && this.energy < MAX_HEALTH && temporizes(10)) {
+        if (this.charge >= MAX_CHARGE && this.energy < MAX_HEALTH && temporizes(10)) {
             this.energy++;
         }
 
@@ -305,9 +335,8 @@ class Player extends Entity {
 
     onDestroy() {
         gameState.playerAlive = false;
-        gameState.gameOver = true;
         audioSystem.playExplosion();
-        document.getElementById('game-over').classList.add('visible');
+        gameState.deathSequenceFrames = DEATH_OVERLAY_DELAY_FRAMES;
     }
 }
 
@@ -324,7 +353,7 @@ class Missile extends Entity {
         this.dirY = Math.abs(this.dirY);
         this.restoX = 0;
         this.restoY = 0;
-        this.releaseDebris = 10;
+        this.releaseDebris = 4;
         this.friendly = friendly;
         
         // Create mesh
@@ -393,7 +422,7 @@ class Laser extends Entity {
     constructor() {
         super(gameState.playerX, gameState.playerY - 10, 2, 50);
         this.energy = 2;
-        this.releaseDebris = 10;
+        this.releaseDebris = 4;
         
         this.mesh = BABYLON.MeshBuilder.CreateBox("laser", { width: 1, height: 1, depth: 0.3 }, scene);
         this.mesh.material = createMaterial("laser", new BABYLON.Color3(0, 1, 1));
@@ -417,7 +446,7 @@ class Enemy extends Entity {
         this.movement = random(4); // 0=down, 1=up, 2=left, 3=right
         this.distance = random(50);
         this.shootTime = random(100) + 20;
-        this.releaseDebris = 50;
+        this.releaseDebris = 20;
         
         // Create enemy mesh
         const body = BABYLON.MeshBuilder.CreateBox("enemyBody", { size: 2 }, scene);
@@ -484,7 +513,7 @@ class Meteor extends Entity {
     constructor() {
         super(0, 0, 5, 5);
         this.energy = METEOR_HEALTH;
-        this.releaseDebris = 10;
+        this.releaseDebris = 5;
         
         // Random entry point
         let angle;
@@ -558,7 +587,7 @@ class Guided extends Entity {
         this.velX = 0;
         this.velY = 0;
         this.time = 0;
-        this.releaseDebris = 10;
+        this.releaseDebris = 5;
         
         this.mesh = BABYLON.MeshBuilder.CreateSphere("guided", { diameter: 1 }, scene);
         this.mesh.material = createMaterial("guided", new BABYLON.Color3(1, 0, 1));
@@ -636,7 +665,7 @@ class Rain extends Entity {
         super(x, y, 20, 20);
         this.energy = 100;
         this.radius = 0;
-        this.releaseDebris = 100;
+        this.releaseDebris = 15;
         
         this.mesh = BABYLON.MeshBuilder.CreateTorus("rain", { diameter: 1, thickness: 0.25, tessellation: 16 }, scene);
         this.mesh.material = createMaterial("rain", new BABYLON.Color3(0, 1, 0));
@@ -724,7 +753,7 @@ class Transport extends Entity {
     constructor() {
         super(0, random(SCREEN_HEIGHT / 2 - 40) + 40, 100, 20);
         this.energy = 500;
-        this.releaseDebris = 200;
+        this.releaseDebris = 40;
         
         this.mesh = BABYLON.MeshBuilder.CreateBox("transport", { width: 1, height: 1, depth: 2 }, scene);
         this.mesh.material = createMaterial("transport", new BABYLON.Color3(0.4, 0.3, 0.3));
@@ -852,11 +881,6 @@ function cleanupEntities() {
 function gameLoop() {
     if (gameState.gameOver) return;
     
-    // Ensure player exists
-    if (!gameState.playerAlive) {
-        friendlyEntities.push(new Player());
-    }
-    
     // Update all entities
     friendlyEntities.forEach(e => e.update());
     enemyEntities.forEach(e => e.update());
@@ -875,6 +899,15 @@ function gameLoop() {
     
     // Update HUD
     updateHUD();
+
+    // Handle death sequence delay before showing game over
+    if (gameState.deathSequenceFrames > 0) {
+        gameState.deathSequenceFrames--;
+        if (gameState.deathSequenceFrames === 0) {
+            gameState.gameOver = true;
+            document.getElementById('game-over').classList.add('visible');
+        }
+    }
     
     gameState.numFrame++;
 }
@@ -902,6 +935,9 @@ function createScene() {
     const pointLight = new BABYLON.PointLight("pointLight", new BABYLON.Vector3(0, 0, -30), scene);
     pointLight.intensity = 0.5;
     
+    // Initialize pooled debris
+    initDebrisPool();
+
     // Create initial player
     friendlyEntities.push(new Player());
     
@@ -927,6 +963,11 @@ function createScene() {
         try { canvas.setPointerCapture(e.pointerId); } catch {}
         e.preventDefault();
     }, { passive: false });
+
+    // Keep updating cursor while button is held (with pointer capture)
+    canvas.addEventListener('pointermove', (e) => {
+        updateCursor(e.clientX, e.clientY);
+    }, { passive: true });
 
     canvas.addEventListener('pointerup', (e) => {
         if (e.button === 0) gameState.leftButton = false;
