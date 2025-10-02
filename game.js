@@ -31,10 +31,7 @@ let friendlyEntities = [];
 let enemyEntities = [];
 let debrisEntities = [];
 
-// Debris pool
-let debrisBaseMesh = null;
-let debrisMaterial = null;
-let totalDebrisCount = 0;
+// Debris pool handled in engine/debrisPool.js (globals: debrisBaseMesh, debrisMaterial, totalDebrisCount)
 
 // Post FX and background
 let glowLayer = null;
@@ -47,49 +44,15 @@ let engineFlamesEnabled = true;
 
 // Material helpers moved to visuals.js
 
-function initDebrisPool() {
-    if (debrisBaseMesh) return;
-    debrisBaseMesh = BABYLON.MeshBuilder.CreateBox("debrisBase", { size: 0.5 }, scene);
-    debrisMaterial = new BABYLON.StandardMaterial("debrisMat", scene);
-    debrisMaterial.emissiveColor = new BABYLON.Color3(1, 1, 1);
-    debrisMaterial.disableLighting = true;
-    debrisBaseMesh.material = debrisMaterial;
-    debrisBaseMesh.renderingGroupId = 1; // above background
-    debrisBaseMesh.setEnabled(false);
-}
+// initDebrisPool moved to engine/debrisPool.js and exposed globally
 
 // fitMeshToPixels moved to visuals.js
 
 // Visual helpers and mesh builders moved to visuals.js
 
-// Entities are defined in entities.js
+// Entities are defined in individual files under entities/
 
-// Collision detection
-function collides(a, b) {
-    const deltaX = Math.abs(a.x - b.x) - (a.width / 2) - (b.width / 2);
-    const deltaY = Math.abs(a.y - b.y) - (a.height / 2) - (b.height / 2);
-    return (deltaX <= 0) && (deltaY <= 0);
-}
-
-function testCollision(a, b) {
-    if (collides(a, b)) {
-        const ea = a.energy;
-        a.takeDamage(b.energy);
-        b.takeDamage(ea);
-        // Hit feedback
-        if (audioSystem && audioSystem.initialized) audioSystem.playImpact();
-    }
-}
-
-function distributeHits(list1, list2) {
-    for (let i = 0; i < list1.length; i++) {
-        if (!list1[i].alive) continue;
-        for (let j = 0; j < list2.length; j++) {
-            if (!list2[j].alive) continue;
-            testCollision(list1[i], list2[j]);
-        }
-    }
-}
+// Collision detection moved to engine/collision.js and exposed globally (collides, testCollision, distributeHits)
 
 // Enemy spawning
 let lastSpawnFrame = 0;
