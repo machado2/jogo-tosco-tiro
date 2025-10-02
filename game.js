@@ -126,6 +126,189 @@ function fitMeshToPixels(mesh, targetWidth, targetHeight) {
     mesh.refreshBoundingInfo(true);
 }
 
+// ---------- Visual helpers: environment, procedural textures, and mesh builders ----------
+function ensureEnvironment() {
+    // Use a hosted prefiltered env map for nicer PBR reflections
+    if (!scene.environmentTexture) {
+        try {
+            scene.environmentTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
+                "https://assets.babylonjs.com/environments/environmentSpecular.env",
+                scene
+            );
+        } catch {}
+    }
+}
+
+function colorToCSS(c) {
+    return `rgb(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)})`;
+}
+
+function scaleColor(c, s) {
+    return new BABYLON.Color3(
+        Math.min(1, c.r * s),
+        Math.min(1, c.g * s),
+        Math.min(1, c.b * s)
+    );
+}
+
+// Simple panel-line dynamic texture
+function createPanelTexture(name, baseColor) {
+    const size = 256;
+    const dt = new BABYLON.DynamicTexture(name, { width: size, height: size }, scene, false);
+    const ctx = dt.getContext();
+    const cTop = colorToCSS(scaleColor(baseColor, 1.05));
+    const cBot = colorToCSS(scaleColor(baseColor, 0.85));
+    const grad = ctx.createLinearGradient(0, 0, 0, size);
+    grad.addColorStop(0, cTop);
+    grad.addColorStop(1, cBot);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    // Grid/panel lines
+    ctx.strokeStyle = "rgba(255,255,255,0.06)";
+    ctx.lineWidth = 1;
+    for (let i = 32; i < size; i += 32) {
+        ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(size, i); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, size); ctx.stroke();
+    }
+    // Few diagonal accent lines
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    for (let i = -size; i < size; i += 64) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + size, size); ctx.stroke();
+    }
+    dt.update(false);
+    return dt;
+}
+
+function createPBRMetalMaterial(name, baseColor, panelTexture = null, emissiveFactor = 0.08) {
+    ensureEnvironment();
+    const mat = new BABYLON.PBRMaterial(name, scene);
+    mat.metallic = 1.0;
+    mat.roughness = 0.35;
+    mat.environmentIntensity = 0.8;
+    mat.albedoColor = baseColor;
+    if (panelTexture) mat.albedoTexture = panelTexture;
+    mat.emissiveColor = baseColor.scale(emissiveFactor);
+    return mat;
+}
+
+// Build an improved player ship (lathe fuselage + wings + canopy)
+function buildPlayerShipMesh() {
+    const bodyColor = new BABYLON.Color3(0.18, 0.55, 1);
+    const panelTex = createPanelTexture("playerPanelTex", bodyColor);
+    const hullMat = createPBRMetalMaterial("playerHull", bodyColor, panelTex, 0.05);
+
+    const profile = [
+        new BABYLON.Vector3(0.00, 1.20, 0),
+        new BABYLON.Vector3(0.45, 0.90, 0),
+        new BABYLON.Vector3(0.60, 0.30, 0),
+        new BABYLON.Vector3(0.38, -0.40, 0),
+        new BABYLON.Vector3(0.20, -0.95, 0),
+        new BABYLON.Vector3(0.00, -1.30, 0)
+    ];
+    const fuselage = BABYLON.MeshBuilder.CreateLathe("playerFuselage", {
+        shape: profile,
+        sideOrientation: BABYLON.Mesh.DOUBLESIDE,
+        tessellation: 24
+    }, scene);
+    fuselage.material = hullMat;
+
+    const wingL = BABYLON.MeshBuilder.CreateBox("wingL", { width: 2.4, height: 0.12, depth: 0.7 }, scene);
+    wingL.position.x = -1.0; wingL.position.y = 0.1; wingL.rotation.z = 0.12; wingL.material = hullMat;
+    const wingR = wingL.clone("wingR"); wingR.position.x = 1.0; wingR.rotation.z = -0.12;
+
+    const fin = BABYLON.MeshBuilder.CreateBox("fin", { width: 0.25, height: 0.9, depth: 0.4 }, scene);
+    fin.position.y = -0.5; fin.material = hullMat;
+
+    const glass = new BABYLON.PBRMaterial("cockpitGlass", scene);
+    ensureEnvironment();
+    glass.metallic = 0.0; glass.roughness = 0.05; glass.alpha = 0.8;
+    glass.albedoColor = new BABYLON.Color3(0.5, 0.8, 1);
+    const canopy = BABYLON.MeshBuilder.CreateSphere("canopy", { diameter: 0.7 }, scene);
+    canopy.position.y = 0.25; canopy.position.z = 0.25; canopy.material = glass;
+
+    const engine = BABYLON.MeshBuilder.CreatePlane("engineGlow", { size: 0.7 }, scene);
+    engine.billboardMode = BABYLON.AbstractMesh.BILLBOARDMODE_ALL;
+    engine.position.y = -1.25; engine.position.z = -0.1;
+    const engineMat = createMaterial("engineGlowMat", new BABYLON.Color3(1.0, 0.5, 0.1));
+    engine.material = engineMat;
+
+    const merged = BABYLON.Mesh.MergeMeshes([fuselage, wingL, wingR, fin, canopy, engine], true, true, undefined, false, true);
+    merged.renderingGroupId = 1;
+    return merged;
+}
+
+function buildBasicEnemyMesh() {
+    const bodyColor = new BABYLON.Color3(0.6, 0.6, 0.65);
+    const tex = createPanelTexture("enemyPanelTex", bodyColor);
+    const mat = createPBRMetalMaterial("enemyHull", bodyColor, tex, 0.03);
+
+    const body = BABYLON.MeshBuilder.CreatePolyhedron("enemyBody", { type: 2, size: 1.0 }, scene); // octa-like
+    body.material = mat;
+    const armL = BABYLON.MeshBuilder.CreateBox("armL", { width: 1.6, height: 0.12, depth: 0.4 }, scene);
+    armL.position.x = -1.1; armL.material = mat;
+    const armR = armL.clone("armR"); armR.position.x = 1.1;
+    const spike = BABYLON.MeshBuilder.CreateCylinder("spike", { height: 0.8, diameterTop: 0.0, diameterBottom: 0.35 }, scene);
+    spike.position.y = -0.9; spike.material = mat;
+
+    const merged = BABYLON.Mesh.MergeMeshes([body, armL, armR, spike], true, true, undefined, false, true);
+    merged.renderingGroupId = 1;
+    return merged;
+}
+
+function buildTurretMesh() {
+    const baseColor = new BABYLON.Color3(0.0, 0.8, 0.4);
+    const tex = createPanelTexture("turretPanelTex", baseColor);
+    const mat = createPBRMetalMaterial("turretHull", baseColor, tex, 0.04);
+
+    const base = BABYLON.MeshBuilder.CreateCylinder("turBase", { height: 0.6, diameter: 1.4, tessellation: 24 }, scene);
+    base.material = mat;
+    const ring = BABYLON.MeshBuilder.CreateTorus("turRing", { diameter: 1.6, thickness: 0.12 }, scene);
+    ring.rotation.x = Math.PI / 2; ring.material = mat;
+    const barrel = BABYLON.MeshBuilder.CreateCylinder("turBarrel", { height: 1.8, diameter: 0.25 }, scene);
+    barrel.rotation.x = Math.PI / 2; barrel.position.y = 0.5; barrel.position.z = 0.8; barrel.material = mat;
+
+    const merged = BABYLON.Mesh.MergeMeshes([base, ring, barrel], true, true, undefined, false, true);
+    merged.renderingGroupId = 1;
+    return merged;
+}
+
+function buildTransportMesh(color = new BABYLON.Color3(0.4, 0.3, 0.3)) {
+    const tex = createPanelTexture("transportPanelTex", color);
+    const mat = createPBRMetalMaterial("transportHull", color, tex, 0.02);
+    const hull = BABYLON.MeshBuilder.CreateBox("transHull", { width: 5, height: 1.2, depth: 1.2 }, scene);
+    hull.material = mat;
+    const ribs = [];
+    for (let i = -2; i <= 2; i++) {
+        const rib = BABYLON.MeshBuilder.CreateBox("rib" + i, { width: 0.2, height: 1.3, depth: 1.25 }, scene);
+        rib.position.x = i * 0.9;
+        rib.material = mat;
+        ribs.push(rib);
+    }
+    const merged = BABYLON.Mesh.MergeMeshes([hull, ...ribs], true, true, undefined, false, true);
+    merged.renderingGroupId = 1;
+    return merged;
+}
+
+function buildMeteorMesh() {
+    // Start from an ico sphere and perturb vertices for a rocky look
+    const rock = BABYLON.MeshBuilder.CreateIcoSphere("meteor", { radius: 1, subdivisions: 2 }, scene);
+    const positions = rock.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+    for (let i = 0; i < positions.length; i += 3) {
+        const nx = (Math.random() - 0.5) * 0.25;
+        const ny = (Math.random() - 0.5) * 0.25;
+        const nz = (Math.random() - 0.5) * 0.25;
+        positions[i] += nx; positions[i + 1] += ny; positions[i + 2] += nz;
+    }
+    rock.updateVerticesData(BABYLON.VertexBuffer.PositionKind, positions);
+    const mat = new BABYLON.StandardMaterial("meteorMat", scene);
+    mat.diffuseColor = new BABYLON.Color3(0.45, 0.35, 0.25);
+    mat.emissiveColor = new BABYLON.Color3(0.1, 0.08, 0.06);
+    mat.specularColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+    rock.material = mat;
+    rock.renderingGroupId = 1;
+    return rock;
+}
+
 // Base Entity class
 class Entity {
     constructor(x, y, width, height) {
@@ -257,19 +440,8 @@ class Player extends Entity {
         this.shootTime = 0;
         this.releaseDebris = 80;
         
-        // Create player mesh - spaceship
-        const body = BABYLON.MeshBuilder.CreateBox("playerBody", { width: 3, height: 4, depth: 2 }, scene);
-        const wing1 = BABYLON.MeshBuilder.CreateBox("wing1", { width: 6, height: 1, depth: 1 }, scene);
-        const wing2 = BABYLON.MeshBuilder.CreateBox("wing2", { width: 6, height: 1, depth: 1 }, scene);
-        const cockpit = BABYLON.MeshBuilder.CreateSphere("cockpit", { diameter: 1.5 }, scene);
-        
-        wing1.position.y = -1;
-        wing2.position.y = 1;
-        cockpit.position.z = 1;
-        
-        this.mesh = BABYLON.Mesh.MergeMeshes([body, wing1, wing2, cockpit], true, true, undefined, false, true);
-        this.mesh.material = createMaterial("player", new BABYLON.Color3(0.2, 0.6, 1));
-        this.mesh.renderingGroupId = 1; // ensure above background
+        // Create improved player mesh
+        this.mesh = buildPlayerShipMesh();
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
         
@@ -466,20 +638,8 @@ class Enemy extends Entity {
         this.shootTime = random(100) + 20;
         this.releaseDebris = 20;
         
-        // Create enemy mesh
-        const body = BABYLON.MeshBuilder.CreateBox("enemyBody", { size: 2 }, scene);
-        const spike1 = BABYLON.MeshBuilder.CreateCylinder("spike1", { height: 1, diameter: 0.5 }, scene);
-        const spike2 = BABYLON.MeshBuilder.CreateCylinder("spike2", { height: 1, diameter: 0.5 }, scene);
-        
-        spike1.position.x = -1;
-        spike1.rotation.z = Math.PI / 2;
-        spike2.position.x = 1;
-        spike2.rotation.z = Math.PI / 2;
-        
-this.mesh = BABYLON.Mesh.MergeMeshes([body, spike1, spike2], true, true, undefined, false, true);
-        const gray = 0.5 + Math.random() * 0.3;
-        this.mesh.material = createMaterial("enemy" + Math.random(), new BABYLON.Color3(gray, gray, gray));
-        this.mesh.renderingGroupId = 1;
+        // Create improved enemy mesh
+        this.mesh = buildBasicEnemyMesh();
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
         
@@ -570,9 +730,7 @@ class Meteor extends Entity {
         this.restoX = 0;
         this.restoY = 0;
         
-this.mesh = BABYLON.MeshBuilder.CreatePolyhedron("meteor", { type: 1, size: 1 }, scene);
-        this.mesh.material = createMaterial("meteor", new BABYLON.Color3(0.4, 0.3, 0.2));
-        this.mesh.renderingGroupId = 1;
+        this.mesh = buildMeteorMesh();
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -732,14 +890,8 @@ class Metralha extends Entity {
         this.energy = 10;
         this.releaseDebris = 100;
         
-        // Complex shape
-        const box = BABYLON.MeshBuilder.CreateBox("metralhaBox", { size: 3 }, scene);
-        const cyl = BABYLON.MeshBuilder.CreateCylinder("metralhaCyl", { height: 2, diameter: 1 }, scene);
-        cyl.position.y = 2;
-        
-this.mesh = BABYLON.Mesh.MergeMeshes([box, cyl], true, true, undefined, false, true);
-        this.mesh.material = createMaterial("metralha", new BABYLON.Color3(0, 0.8, 0.4));
-        this.mesh.renderingGroupId = 1;
+        // Improved turret mesh
+        this.mesh = buildTurretMesh();
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -779,9 +931,7 @@ class Transport extends Entity {
         this.energy = 500;
         this.releaseDebris = 40;
         
-this.mesh = BABYLON.MeshBuilder.CreateBox("transport", { width: 1, height: 1, depth: 2 }, scene);
-        this.mesh.material = createMaterial("transport", new BABYLON.Color3(0.4, 0.3, 0.3));
-        this.mesh.renderingGroupId = 1;
+        this.mesh = buildTransportMesh(new BABYLON.Color3(0.4, 0.3, 0.3));
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -803,9 +953,7 @@ class Encrenca extends Entity {
         this.energy = 500;
         this.releaseDebris = 200;
         
-this.mesh = BABYLON.MeshBuilder.CreateBox("encrenca", { width: 1, height: 1, depth: 2 }, scene);
-        this.mesh.material = createMaterial("encrenca", new BABYLON.Color3(0.3, 0.3, 0.3));
-        this.mesh.renderingGroupId = 1;
+        this.mesh = buildTransportMesh(new BABYLON.Color3(0.3, 0.3, 0.3));
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -959,6 +1107,9 @@ function createScene() {
     // Simple ambient setup
     const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
     light.intensity = 0.6;
+
+    // Environment for PBR metals
+    ensureEnvironment();
     
     // Post FX: glow + bloom + FXAA + vignette
     try {
