@@ -57,6 +57,7 @@ let glowLayer = null;
 let renderingPipeline = null;
 let highlightLayer = null;
 let starfield = null;
+let engineFlamesEnabled = true;
 
 // Utility functions
 function random(max) {
@@ -549,7 +550,7 @@ class Player extends Entity {
         }
         
         // Player engine flame
-        if (temporizes(2)) {
+        if (engineFlamesEnabled && temporizes(2)) {
             debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2 - 4));
         }
         
@@ -784,7 +785,7 @@ class Enemy extends Entity {
         }
         
         // Occasional engine trail for enemies
-        if (temporizes(6)) debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2));
+        if (engineFlamesEnabled && temporizes(6)) debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2));
         
         // Tilt to direction of travel
         const vx = this.x - oldX;
@@ -1381,6 +1382,13 @@ function createScene() {
     
     // Run game loop
     scene.registerBeforeRender(gameLoop);
+
+    // Toggle visual effects via keyboard
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'KeyG' && glowLayer) glowLayer.isEnabled = !glowLayer.isEnabled;
+        if (e.code === 'KeyB' && renderingPipeline) renderingPipeline.bloomEnabled = !renderingPipeline.bloomEnabled;
+        if (e.code === 'KeyF') engineFlamesEnabled = !engineFlamesEnabled;
+    });
     
     // Render loop
     engine.runRenderLoop(() => {
