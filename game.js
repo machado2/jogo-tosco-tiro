@@ -83,6 +83,20 @@ function createMaterial(name, color) {
     return mat;
 }
 
+// Scale a mesh so its bounding box matches desired pixel width/height
+function fitMeshToPixels(mesh, targetWidth, targetHeight) {
+    // Reset scaling to base
+    mesh.scaling = new BABYLON.Vector3(1, 1, 1);
+    mesh.refreshBoundingInfo(true);
+    const bb = mesh.getBoundingInfo().boundingBox;
+    const currentWidth = (bb.maximumWorld.x - bb.minimumWorld.x);
+    const currentHeight = (bb.maximumWorld.y - bb.minimumWorld.y);
+    const sx = targetWidth / (currentWidth || 1);
+    const sy = targetHeight / (currentHeight || 1);
+    mesh.scaling = new BABYLON.Vector3(sx, sy, 1);
+    mesh.refreshBoundingInfo(true);
+}
+
 // Base Entity class
 class Entity {
     constructor(x, y, width, height) {
@@ -216,6 +230,7 @@ class Player extends Entity {
         
         this.mesh = BABYLON.Mesh.MergeMeshes([body, wing1, wing2, cockpit], true, true, undefined, false, true);
         this.mesh.material = createMaterial("player", new BABYLON.Color3(0.2, 0.6, 1));
+        fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
         
         gameState.playerAlive = true;
@@ -276,6 +291,7 @@ class Player extends Entity {
         }
 
         gameState.playerHealth = this.energy;
+        gameState.playerCharge = this.charge;
         gameState.playerX = this.x;
         gameState.playerY = this.y;
         this.updateMeshPosition();
@@ -315,6 +331,7 @@ class Missile extends Entity {
         this.mesh = BABYLON.MeshBuilder.CreateSphere("missile", { diameter: 1 }, scene);
         const color = friendly ? new BABYLON.Color3(0, 0.5, 1) : new BABYLON.Color3(1, 0.5, 0);
         this.mesh.material = createMaterial(friendly ? "friendlyMissile" : "enemyMissile", color);
+        fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
 
@@ -350,6 +367,7 @@ class Nuclear extends Missile {
         const size = 1 + level * 0.5;
         this.mesh = BABYLON.MeshBuilder.CreateSphere("nuclear", { diameter: size }, scene);
         this.mesh.material = createMaterial("nuclear", new BABYLON.Color3(1, 0, 0));
+        fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
 
@@ -377,8 +395,9 @@ class Laser extends Entity {
         this.energy = 2;
         this.releaseDebris = 10;
         
-        this.mesh = BABYLON.MeshBuilder.CreateBox("laser", { width: 0.3, height: 5, depth: 0.3 }, scene);
+        this.mesh = BABYLON.MeshBuilder.CreateBox("laser", { width: 1, height: 1, depth: 0.3 }, scene);
         this.mesh.material = createMaterial("laser", new BABYLON.Color3(0, 1, 1));
+        fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
 
@@ -413,6 +432,7 @@ class Enemy extends Entity {
         this.mesh = BABYLON.Mesh.MergeMeshes([body, spike1, spike2], true, true, undefined, false, true);
         const gray = 0.5 + Math.random() * 0.3;
         this.mesh.material = createMaterial("enemy" + Math.random(), new BABYLON.Color3(gray, gray, gray));
+        fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
         
         gameState.enemyPopulation++;
@@ -502,8 +522,9 @@ class Meteor extends Entity {
         this.restoX = 0;
         this.restoY = 0;
         
-        this.mesh = BABYLON.MeshBuilder.CreatePolyhedron("meteor", { type: 1, size: 0.6 }, scene);
+        this.mesh = BABYLON.MeshBuilder.CreatePolyhedron("meteor", { type: 1, size: 1 }, scene);
         this.mesh.material = createMaterial("meteor", new BABYLON.Color3(0.4, 0.3, 0.2));
+        fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
 
@@ -539,8 +560,9 @@ class Guided extends Entity {
         this.time = 0;
         this.releaseDebris = 10;
         
-        this.mesh = BABYLON.MeshBuilder.CreateSphere("guided", { diameter: 1.2 }, scene);
+        this.mesh = BABYLON.MeshBuilder.CreateSphere("guided", { diameter: 1 }, scene);
         this.mesh.material = createMaterial("guided", new BABYLON.Color3(1, 0, 1));
+        fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
 
@@ -575,8 +597,9 @@ class Star extends Entity {
         this.releaseDebris = 500;
         
         // Star shape
-        this.mesh = BABYLON.MeshBuilder.CreateDisc("star", { radius: 3, tessellation: 5 }, scene);
+        this.mesh = BABYLON.MeshBuilder.CreateDisc("star", { radius: 1, tessellation: 5 }, scene);
         this.mesh.material = createMaterial("star", new BABYLON.Color3(1, 1, 0));
+        fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
 
@@ -615,8 +638,9 @@ class Rain extends Entity {
         this.radius = 0;
         this.releaseDebris = 100;
         
-        this.mesh = BABYLON.MeshBuilder.CreateTorus("rain", { diameter: 2, thickness: 0.5, tessellation: 16 }, scene);
+        this.mesh = BABYLON.MeshBuilder.CreateTorus("rain", { diameter: 1, thickness: 0.25, tessellation: 16 }, scene);
         this.mesh.material = createMaterial("rain", new BABYLON.Color3(0, 1, 0));
+        fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
 
@@ -663,6 +687,7 @@ class Metralha extends Entity {
         
         this.mesh = BABYLON.Mesh.MergeMeshes([box, cyl], true, true, undefined, false, true);
         this.mesh.material = createMaterial("metralha", new BABYLON.Color3(0, 0.8, 0.4));
+        fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
 
@@ -701,8 +726,9 @@ class Transport extends Entity {
         this.energy = 500;
         this.releaseDebris = 200;
         
-        this.mesh = BABYLON.MeshBuilder.CreateBox("transport", { width: 8, height: 1.5, depth: 2 }, scene);
+        this.mesh = BABYLON.MeshBuilder.CreateBox("transport", { width: 1, height: 1, depth: 2 }, scene);
         this.mesh.material = createMaterial("transport", new BABYLON.Color3(0.4, 0.3, 0.3));
+        fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
 
@@ -723,8 +749,9 @@ class Encrenca extends Entity {
         this.energy = 500;
         this.releaseDebris = 200;
         
-        this.mesh = BABYLON.MeshBuilder.CreateBox("encrenca", { width: 8, height: 1.5, depth: 2 }, scene);
+        this.mesh = BABYLON.MeshBuilder.CreateBox("encrenca", { width: 1, height: 1, depth: 2 }, scene);
         this.mesh.material = createMaterial("encrenca", new BABYLON.Color3(0.3, 0.3, 0.3));
+        fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
 
@@ -878,28 +905,56 @@ function createScene() {
     // Create initial player
     friendlyEntities.push(new Player());
     
-    // Input handling
-    canvas.addEventListener('mousemove', (e) => {
+    // Input handling (mouse + pointer)
+    const updateCursor = (clientX, clientY) => {
         const rect = canvas.getBoundingClientRect();
         const scaleX = SCREEN_WIDTH / rect.width;
         const scaleY = SCREEN_HEIGHT / rect.height;
-        gameState.cursorX = (e.clientX - rect.left) * scaleX;
-        gameState.cursorY = (e.clientY - rect.top) * scaleY;
+        gameState.cursorX = (clientX - rect.left) * scaleX;
+        gameState.cursorY = (clientY - rect.top) * scaleY;
+    };
+
+    canvas.addEventListener('mousemove', (e) => {
+        updateCursor(e.clientX, e.clientY);
+    }, { passive: true });
+
+    // Pointer events are more robust across devices
+    canvas.addEventListener('pointerdown', (e) => {
+        audioSystem.init(); // Initialize/resume audio on first interaction
+        updateCursor(e.clientX, e.clientY);
+        if (e.button === 0) gameState.leftButton = true;
+        if (e.button === 2) gameState.rightButton = true;
+        try { canvas.setPointerCapture(e.pointerId); } catch {}
+        e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener('pointerup', (e) => {
+        if (e.button === 0) gameState.leftButton = false;
+        if (e.button === 2) gameState.rightButton = false;
+        try { canvas.releasePointerCapture(e.pointerId); } catch {}
+        e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener('mouseleave', () => {
+        gameState.leftButton = false;
+        gameState.rightButton = false;
     });
-    
+
+    // Fallback mouse events
     canvas.addEventListener('mousedown', (e) => {
-        audioSystem.init(); // Initialize audio on first interaction
+        audioSystem.init();
+        updateCursor(e.clientX, e.clientY);
         if (e.button === 0) gameState.leftButton = true;
         if (e.button === 2) gameState.rightButton = true;
         e.preventDefault();
-    });
-    
+    }, { passive: false });
+
     canvas.addEventListener('mouseup', (e) => {
         if (e.button === 0) gameState.leftButton = false;
         if (e.button === 2) gameState.rightButton = false;
         e.preventDefault();
-    });
-    
+    }, { passive: false });
+
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     
     // Touch support
@@ -914,7 +969,7 @@ function createScene() {
             gameState.leftButton = true;
         }
         e.preventDefault();
-    });
+    }, { passive: false });
     
     canvas.addEventListener('touchmove', (e) => {
         if (e.touches.length > 0) {
@@ -925,7 +980,7 @@ function createScene() {
             gameState.cursorY = (e.touches[0].clientY - rect.top) * scaleY;
         }
         e.preventDefault();
-    });
+    }, { passive: false });
     
     canvas.addEventListener('touchend', () => {
         gameState.leftButton = false;

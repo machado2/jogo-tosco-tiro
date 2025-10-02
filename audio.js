@@ -7,12 +7,16 @@ class AudioSystem {
     }
 
     init() {
-        if (this.initialized) return;
         try {
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            this.masterGain = this.audioContext.createGain();
-            this.masterGain.gain.value = 0.3;
-            this.masterGain.connect(this.audioContext.destination);
+            if (!this.audioContext) {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                this.masterGain = this.audioContext.createGain();
+                this.masterGain.gain.value = 0.3;
+                this.masterGain.connect(this.audioContext.destination);
+            }
+            if (this.audioContext.state === 'suspended') {
+                this.audioContext.resume();
+            }
             this.initialized = true;
         } catch (e) {
             console.warn('Web Audio API not supported', e);
