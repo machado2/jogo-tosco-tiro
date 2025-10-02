@@ -34,7 +34,9 @@ let gameState = {
     rightButton: false,
     enemyPopulation: 0,
     playerAlive: true,
-    deathSequenceFrames: 0
+    deathSequenceFrames: 0,
+    shakeFrames: 0,
+    shakeIntensity: 0
 };
 
 // Entity lists
@@ -86,6 +88,19 @@ function angleDir(x, y) {
 
 function temporizes(num) {
     return (gameState.numFrame % num) === 0;
+}
+
+function triggerShake(intensity = 2, frames = 10) {
+    gameState.shakeIntensity = intensity;
+    gameState.shakeFrames = frames;
+}
+
+function flashMesh(mesh, color = new BABYLON.Color3(1,1,1), durationMs = 80) {
+    if (!highlightLayer || !mesh) return;
+    try {
+        highlightLayer.addMesh(mesh, color);
+        setTimeout(() => { try { highlightLayer.removeMesh(mesh); } catch {} }, durationMs);
+    } catch {}
 }
 
 // Material creation
@@ -354,6 +369,9 @@ class Entity {
             this.onDestroy();
             this.destroy();
             return true;
+        } else {
+            // Brief flash feedback when taking damage
+            if (this.mesh) flashMesh(this.mesh);
         }
         return false;
     }
@@ -551,6 +569,7 @@ class Player extends Entity {
     onDestroy() {
         gameState.enemyPopulation--;
         audioSystem.playExplosionBig();
+        triggerShake(6, 50);
         gameState.deathSequenceFrames = DEATH_OVERLAY_DELAY_FRAMES;
     }
 }
@@ -782,6 +801,7 @@ class Enemy extends Entity {
         gameState.enemyPopulation--;
         gameState.score += POINTS_ENEMY;
         audioSystem.playExplosion();
+        triggerShake(1.2, 8);
     }
 }
 
@@ -853,6 +873,7 @@ class Meteor extends Entity {
     onDestroy() {
         gameState.score += POINTS_METEOR;
         audioSystem.playExplosion();
+        triggerShake(0.8, 6);
     }
 }
 
@@ -1021,6 +1042,7 @@ class Metralha extends Entity {
     onDestroy() {
         gameState.score += POINTS_METRALHA;
         audioSystem.playExplosion();
+        triggerShake(1.5, 10);
     }
 }
 
@@ -1047,6 +1069,8 @@ class Transport extends Entity {
 
     onDestroy() {
         audioSystem.playExplosionBig();
+        triggerShake(3.0, 20);
+    }
     }
 }
 
@@ -1167,6 +1191,15 @@ function gameLoop() {
     
     // Background scroll
     if (starfield) starfield.update();
+
+    // Camera shake
+    if (gameState.shakeFrames > 0) {
+        camera.position.x = (Math.random() - 0.5) * gameState.shakeIntensity;
+        camera.position.y = (Math.random() - 0.5) * gameState.shakeIntensity;
+        gameState.shakeFrames--;
+    } else {
+        camera.position.x = 0; camera.position.y = 0;
+    }
     
     // Update all entities
     friendlyEntities.forEach(e => e.update());
