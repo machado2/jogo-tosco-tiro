@@ -1,4 +1,16 @@
-**/build/
+# Editor directories and files
 .vscode/
+.idea/
+*.swp
+*.swo
 *~
-*.exe
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Node modules (if you ever add build tools)
+node_modules/
