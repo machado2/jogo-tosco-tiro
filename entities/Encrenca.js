@@ -4,8 +4,8 @@ class Encrenca extends Entity {
         this.energy = 500; this.releaseDebris = 200;
         this.mesh = buildBasicEnemyMesh(); fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition(); this.updateBodyFromEntity();
     }
-    update() { if (temporizes(100)) enemyEntities.push(new Rain(this.x, this.y)); if (temporizes(10)) this.y++; if (++this.x > SCREEN_WIDTH) this.destroy(); this.updateMeshPosition(); this.updateBodyFromEntity(); }
-    onDestroy() { try { audioSystem.playExplosionBig(); } catch {} }
+    update() { if (temporizes(100)) enemyEntities.push(new Rain(this.x, this.y)); if (temporizes(10)) this.y++; if (++this.x > SCREEN_WIDTH) this.destroy(); if (typeof syncEntityVisual === 'function') { syncEntityVisual(this); } else { this.updateMeshPosition(); this.updateBodyFromEntity(); } }
+    onDestroy() { if (typeof playGameSound === 'function') playGameSound('explosion_big'); }
 }
 
 window.Encrenca = Encrenca;

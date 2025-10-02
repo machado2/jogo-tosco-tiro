@@ -61,34 +61,16 @@ class Entity {
     update() {}
 
     updateMeshPosition() {
-        if (this.mesh) {
-            this.mesh.position.x = this.x - SCREEN_WIDTH / 2;
-            this.mesh.position.y = -(this.y - SCREEN_HEIGHT / 2);
-            try {
-                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-                if (typeof this.mesh.getBoundingInfo === 'function') {
-                    try { this.mesh.refreshBoundingInfo && this.mesh.refreshBoundingInfo(true); } catch {}
-                    const bb = this.mesh.getBoundingInfo().boundingBox;
-                    minX = Math.min(minX, bb.minimumWorld.x);
-                    maxX = Math.max(maxX, bb.maximumWorld.x);
-                    minY = Math.min(minY, bb.minimumWorld.y);
-                    maxY = Math.max(maxY, bb.maximumWorld.y);
-                }
-                if (this.mesh.getChildren) {
-                    const children = this.mesh.getChildren().filter(c => c && typeof c.getBoundingInfo === 'function');
-                    children.forEach(ch => {
-                        try { ch.refreshBoundingInfo && ch.refreshBoundingInfo(true); } catch {}
-                        const bb = ch.getBoundingInfo().boundingBox;
-                        minX = Math.min(minX, bb.minimumWorld.x);
-                        maxX = Math.max(maxX, bb.maximumWorld.x);
-                        minY = Math.min(minY, bb.minimumWorld.y);
-                        maxY = Math.max(maxY, bb.maximumWorld.y);
-                    });
-                }
-                const newW = (maxX - minX);
-                const newH = (maxY - minY);
-                if (isFinite(newW) && isFinite(newH) && newW > 0 && newH > 0) { this.width = newW; this.height = newH; this.updateBodyFromEntity(); }
-            } catch {}
+        // Delegate to visuals helper to keep entities focused on gameplay
+        if (typeof updateEntityMeshPosition === 'function') {
+            updateEntityMeshPosition(this);
+        } else {
+            // Fallback to original positioning in case helper is unavailable
+            if (this.mesh) {
+                this.mesh.position.x = this.x - SCREEN_WIDTH / 2;
+                this.mesh.position.y = -(this.y - SCREEN_HEIGHT / 2);
+            }
+            this.updateBodyFromEntity();
         }
     }
 
@@ -97,16 +79,15 @@ class Entity {
         const { velX = 0, velY = -10, friendly = true, level = 0 } = options;
         let shot = null;
         if (type === 'laser') {
-            shot = new Laser();
-            try { audioSystem.playLaser && audioSystem.playLaser(); } catch {}
+            shot = (typeof createLaser === 'function') ? createLaser() : new Laser();
             friendlyEntities.push(shot);
         } else if (type === 'nuclear') {
-            shot = new Nuclear(this.x, this.y - 5, velX, velY, level);
-            try { audioSystem.playShoot && audioSystem.playShoot(); } catch {}
+            const x = this.x, y = this.y - 5;
+            shot = (typeof createNuclear === 'function') ? createNuclear(x, y, velX, velY, level) : new Nuclear(x, y, velX, velY, level);
             friendlyEntities.push(shot);
         } else {
-            shot = new Missile(this.x, this.y - 5, velX, velY, friendly);
-            try { audioSystem.playShoot && audioSystem.playShoot(); } catch {}
+            const x = this.x, y = this.y - 5;
+            shot = (typeof createMissile === 'function') ? createMissile(x, y, velX, velY, friendly) : new Missile(x, y, velX, velY, friendly);
             (friendly ? friendlyEntities : enemyEntities).push(shot);
         }
         return shot;

@@ -26,7 +26,7 @@ function initHUD() {
       gameState.muted = !gameState.muted;
       if (window.audioSystem) {
         // Ensure nodes exist so mute takes effect immediately
-        if (!audioSystem.audioContext) {
+        if (!audioSystem.ctx) {
           try { audioSystem.init(); } catch {}
         }
         if (typeof audioSystem.setMuted === 'function') {
@@ -41,3 +41,15 @@ function initHUD() {
     }
   });
 }
+
+function flashDamageOverlay() {
+  try {
+    const el = document.getElementById('damage-overlay');
+    if (el) {
+      el.classList.add('flash');
+      setTimeout(() => el.classList.remove('flash'), 120);
+    }
+  } catch {}
+}
+
+window.flashDamageOverlay = flashDamageOverlay;

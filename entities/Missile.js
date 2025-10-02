@@ -9,7 +9,7 @@ class Missile extends Entity {
         this.mesh = BABYLON.MeshBuilder.CreateSphere("missile", { diameter: 1 }, scene);
         const color = friendly ? new BABYLON.Color3(0, 0.6, 1) : new BABYLON.Color3(1, 0.2, 0);
         this.mesh.material = createLitMaterial(friendly ? "friendlyMissileLit" : "enemyMissileLit", color, 0.25);
-        this.mesh.renderingGroupId = 1; fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition(); this.updateBodyFromEntity();
+        this.mesh.renderingGroupId = 1; fitMeshToPixels(this.mesh, this.width, this.height); if (typeof window !== 'undefined' && typeof window.syncEntityVisual === 'function') { try { window.syncEntityVisual(this); } catch {} } else { this.updateMeshPosition(); this.updateBodyFromEntity(); }
         registerGlowMesh(this.mesh);
         try {
             const light = new BABYLON.PointLight("missileLight", new BABYLON.Vector3(0, 0, 0), scene);
@@ -24,7 +24,7 @@ class Missile extends Entity {
         this.restoX += this.dirX; this.restoY += this.dirY;
         while (this.restoX >= 100) { this.restoX -= 100; this.x += this.incX; }
         while (this.restoY >= 100) { this.restoY -= 100; this.y += this.incY; }
-        if (this.isOffScreen()) this.destroy(); this.updateMeshPosition(); this.updateBodyFromEntity();
+        if (this.isOffScreen()) this.destroy(); if (typeof window !== 'undefined' && typeof window.syncEntityVisual === 'function') { try { window.syncEntityVisual(this); } catch {} } else { this.updateMeshPosition(); this.updateBodyFromEntity(); }
     }
     destroy() { if (!this.alive) return; super.destroy(); if (this.light) { try { this.light.dispose(); } catch {} this.light = null; } }
 }

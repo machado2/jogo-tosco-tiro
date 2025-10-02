@@ -3,7 +3,8 @@ class Player extends Entity {
         super(SCREEN_WIDTH / 2, SCREEN_HEIGHT - 80, SizesConfig.player.width, SizesConfig.player.height);
         this.energy = MAX_HEALTH; this.charge = MAX_CHARGE; this.shootTime = 0; this.releaseDebris = 80;
         this.mesh = buildPlayerShipMesh();
-        fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition(); this.updateBodyFromEntity();
+        fitMeshToPixels(this.mesh, this.width, this.height);
+        if (typeof window !== 'undefined' && typeof window.syncEntityVisual === 'function') { try { window.syncEntityVisual(this); } catch {} } else { this.updateMeshPosition(); this.updateBodyFromEntity(); }
         if (highlightLayer) {
             try {
                 const defaultColor = new BABYLON.Color3(0.12, 0.4, 0.8);
@@ -26,7 +27,8 @@ class Player extends Entity {
         if (dist > 20) { this.x += (dx * 20) / dist; this.y += (dy * 20) / dist; } else { this.x = gameState.cursorX; this.y = gameState.cursorY; }
         this.keepOnScreen();
         const vx = this.x - this.prevX; const vy = this.y - this.prevY;
-        if (this.mesh) {
+        if (typeof updateBankingRotation === 'function') { updateBankingRotation(this, vx, vy, 1.1, 0.26, 0.11); }
+        else if (this.mesh) {
             const targetZ = BABYLON.Scalar.Clamp(-vx * 0.11, -1.1, 1.1);
             this.mesh.rotation.z = BABYLON.Scalar.Lerp(this.mesh.rotation.z || this.baseRotZ, this.baseRotZ + targetZ, 0.26);
             this.mesh.rotation.x = BABYLON.Scalar.Lerp(this.mesh.rotation.x || this.baseRotX, this.baseRotX, 0.26);
@@ -38,10 +40,10 @@ class Player extends Entity {
             this.shootTime = 0; this.charge -= 1;
             if (gameState.score >= 500) { this.shoot('laser'); } else { this.shoot('missile', { velY: -10, friendly: true }); }
         }
-        if (gameState.rightButton && this.charge >= MAX_CHARGE && this.shootTime) { this.pulse(); this.charge = 0; this.shootTime = 0; try { audioSystem.playSpecial(); } catch {} }
-        if (gameState.rightButton && this.charge >= 150 && this.shootTime > 50) { this.pulse(0.3); this.charge -= 50; this.shootTime = 0; try { audioSystem.playSpecial(); } catch {} }
+        if (gameState.rightButton && this.charge >= MAX_CHARGE && this.shootTime) { this.pulse(); this.charge = 0; this.shootTime = 0; if (typeof playGameSound === 'function') playGameSound('special'); }
+        if (gameState.rightButton && this.charge >= 150 && this.shootTime > 50) { this.pulse(0.3); this.charge -= 50; this.shootTime = 0; if (typeof playGameSound === 'function') playGameSound('special'); }
         if (this.charge >= MAX_CHARGE && this.energy < MAX_HEALTH && temporizes(10)) this.energy++;
-        if (engineFlamesEnabled && temporizes(2)) debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2 - 4));
+        if (engineFlamesEnabled && temporizes(2)) { if (typeof maybeEmitEngineFlame === 'function') maybeEmitEngineFlame(this, -4); else debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2 - 4)); }
         try {
             if (highlightLayer && this.mesh) {
                 const base = new BABYLON.Color3(0.12, 0.4, 0.8);
@@ -61,11 +63,11 @@ class Player extends Entity {
             }
         } catch {}
         gameState.playerHealth = this.energy; gameState.playerCharge = this.charge; gameState.playerX = this.x; gameState.playerY = this.y;
-        this.updateMeshPosition(); this.updateBodyFromEntity();
+        if (typeof window !== 'undefined' && typeof window.syncEntityVisual === 'function') { try { window.syncEntityVisual(this); } catch {} } else { this.updateMeshPosition(); this.updateBodyFromEntity(); }
     }
     pulse(inc = 0.05) { for (let a = 0; a < Math.PI * 2; a += inc) friendlyEntities.push(new Missile(this.x, this.y, Math.cos(a) * 10, Math.sin(a) * 10, true)); }
-    onDestroy() { gameState.enemyPopulation--; try { audioSystem.playExplosionBig(); } catch {} triggerShake(6, 50); gameState.deathSequenceFrames = DEATH_OVERLAY_DELAY_FRAMES; }
-    takeDamage(dmg) { try { const el = document.getElementById('damage-overlay'); if (el) { el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 120); } } catch {} if (audioSystem && audioSystem.initialized) { try { audioSystem.playHit(); } catch {} } return super.takeDamage(dmg); }
+    onDestroy() { gameState.enemyPopulation--; if (typeof playGameSound === 'function') playGameSound('explosion_big'); triggerShake(6, 50); gameState.deathSequenceFrames = DEATH_OVERLAY_DELAY_FRAMES; }
+    takeDamage(dmg) { if (typeof flashDamageOverlay === 'function') { try { flashDamageOverlay(); } catch {} } if (typeof playGameSound === 'function') playGameSound('hit'); return super.takeDamage(dmg); }
 }
 
 window.Player = Player;

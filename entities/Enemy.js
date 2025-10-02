@@ -64,28 +64,33 @@ class Enemy extends Entity {
       this.shootTime--;
     }
 
-    // Engine trail
+    // Engine trail (via helper)
     if (engineFlamesEnabled && temporizes(6)) {
-      debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2));
+      if (typeof maybeEmitEngineFlame === 'function') { maybeEmitEngineFlame(this); }
+      else { debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2)); }
     }
 
     // Banking rotation based on movement
     const vx = this.x - oldX; const vy = this.y - oldY;
-    if (this.mesh) {
+    if (typeof updateBankingRotation === 'function') { updateBankingRotation(this, vx, vy); }
+    else if (this.mesh) {
       const targetZ = BABYLON.Scalar.Clamp(-vx * 0.12, -1.1, 1.1);
       this.mesh.rotation.z = BABYLON.Scalar.Lerp(this.mesh.rotation.z || this.baseRotZ, this.baseRotZ + targetZ, 0.24);
       this.mesh.rotation.x = BABYLON.Scalar.Lerp(this.mesh.rotation.x || this.baseRotX, this.baseRotX, 0.24);
     }
 
-    this.updateMeshPosition();
-    this.updateBodyFromEntity();
+    if (typeof syncEntityVisual === 'function') { syncEntityVisual(this); }
+    else { this.updateMeshPosition(); this.updateBodyFromEntity(); }
   }
 
   onDestroy() {
     gameState.enemyPopulation--;
     gameState.score += POINTS_ENEMY;
-    try { audioSystem.playExplosion(); } catch {}
+    // Optionally sync visuals one last time if helper exists
+    if (typeof syncEntityVisual === 'function') { try { syncEntityVisual(this); } catch {} }
     triggerShake(1.2, 8);
+    // Centralized explosion sound with helper
+    if (typeof playGameSound === 'function') { try { playGameSound('explosion'); } catch {} }
   }
 }
 

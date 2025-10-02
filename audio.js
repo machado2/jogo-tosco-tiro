@@ -97,3 +97,21 @@ class AudioSystem {
 
 // Global instance
 const audioSystem = new AudioSystem();
+
+function playGameSound(name) {
+  try { if (window.audioSystem) { audioSystem.init(); } } catch {}
+  if (!window.audioSystem || !audioSystem.initialized || audioSystem.muted) return;
+  switch (name) {
+    case 'hit': audioSystem.playHit(); break;
+    case 'impact': audioSystem.playImpact(); break;
+    case 'explosion_small': audioSystem.playExplosionSmall(); break;
+    case 'explosion_big': audioSystem.playExplosionBig(); break;
+    case 'powerup': audioSystem.playPowerup(); break;
+    case 'laser': audioSystem.playLaser(); break;
+    case 'special': audioSystem.playSpecial(); break;
+    case 'shoot': audioSystem.playShoot(); break;
+    case 'explosion': audioSystem.playExplosion(); break;
+    default: break;
+  }
+}
+window.playGameSound = playGameSound;

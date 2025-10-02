@@ -4,8 +4,8 @@ class Transport extends Entity {
         this.energy = 500; this.releaseDebris = 40;
         this.mesh = buildBasicEnemyMesh(); fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition(); this.updateBodyFromEntity();
     }
-    update() { if (temporizes(50)) enemyEntities.push(new Metralha(this.x, this.y)); if (temporizes(10)) this.y++; if (++this.x > SCREEN_WIDTH) this.destroy(); this.updateMeshPosition(); this.updateBodyFromEntity(); }
-    onDestroy() { try { audioSystem.playExplosionBig(); } catch {} triggerShake(3.0, 20); }
+    update() { if (temporizes(50)) enemyEntities.push(new Metralha(this.x, this.y)); if (temporizes(10)) this.y++; if (++this.x > SCREEN_WIDTH) this.destroy(); if (typeof syncEntityVisual === 'function') { syncEntityVisual(this); } else { this.updateMeshPosition(); this.updateBodyFromEntity(); } }
+    onDestroy() { if (typeof playGameSound === 'function') playGameSound('explosion_big'); triggerShake(3.0, 20); }
 }
 
 window.Transport = Transport;

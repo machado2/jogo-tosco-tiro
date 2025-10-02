@@ -292,3 +292,100 @@ function createPanelTexture(name, baseColor) {
   dt.update(false);
   return dt;
 }
+
+// Visual helper: update entity mesh position and sync body
+function updateEntityMeshPosition(entity) {
+  if (!entity || !entity.mesh) return;
+  const mesh = entity.mesh;
+  mesh.position.x = entity.x - SCREEN_WIDTH / 2;
+  mesh.position.y = -(entity.y - SCREEN_HEIGHT / 2);
+  try {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    if (typeof mesh.getBoundingInfo === 'function') {
+      try { mesh.refreshBoundingInfo && mesh.refreshBoundingInfo(true); } catch {}
+      const bb = mesh.getBoundingInfo().boundingBox;
+      minX = Math.min(minX, bb.minimumWorld.x);
+      maxX = Math.max(maxX, bb.maximumWorld.x);
+      minY = Math.min(minY, bb.minimumWorld.y);
+      maxY = Math.max(maxY, bb.maximumWorld.y);
+    }
+    if (mesh.getChildren) {
+      const children = mesh.getChildren().filter(c => c && typeof c.getBoundingInfo === 'function');
+      children.forEach(ch => {
+        try { ch.refreshBoundingInfo && ch.refreshBoundingInfo(true); } catch {}
+        const bb = ch.getBoundingInfo().boundingBox;
+        minX = Math.min(minX, bb.minimumWorld.x);
+        maxX = Math.max(maxX, bb.maximumWorld.x);
+        minY = Math.min(minY, bb.minimumWorld.y);
+        maxY = Math.max(maxY, bb.maximumWorld.y);
+      });
+    }
+    const newW = (maxX - minX);
+    const newH = (maxY - minY);
+    if (isFinite(newW) && isFinite(newH) && newW > 0 && newH > 0) {
+      entity.width = newW; entity.height = newH; entity.updateBodyFromEntity && entity.updateBodyFromEntity();
+    }
+  } catch {}
+  // Always sync body after position update
+  entity.updateBodyFromEntity && entity.updateBodyFromEntity();
+}
+
+function syncEntityVisual(entity) { updateEntityMeshPosition(entity); }
+
+// Visual helper: banking rotation based on velocity
+function updateBankingRotation(entity, vx, vy, clamp = 1.1, lerp = 0.24, scale = 0.12) {
+  if (!entity || !entity.mesh) return;
+  try {
+    const targetZ = BABYLON.Scalar.Clamp(-vx * scale, -clamp, clamp);
+    const baseRotZ = entity.baseRotZ || (entity.mesh.rotation.z || 0);
+    const baseRotX = entity.baseRotX || (entity.mesh.rotation.x || 0);
+    entity.mesh.rotation.z = BABYLON.Scalar.Lerp(entity.mesh.rotation.z || baseRotZ, baseRotZ + targetZ, lerp);
+    entity.mesh.rotation.x = BABYLON.Scalar.Lerp(entity.mesh.rotation.x || baseRotX, baseRotX, lerp);
+  } catch {}
+}
+
+// Player-specific highlight color pulse helper
+function updatePlayerHighlight(player) {
+  if (!player || !player.mesh || !highlightLayer) return;
+  try {
+    const base = new BABYLON.Color3(0.12, 0.4, 0.8);
+    let color = base;
+    if (player.charge >= MAX_CHARGE * 0.8) {
+      const pulse = 0.75 + 0.25 * Math.sin(gameState.numFrame * 0.15);
+      color = new BABYLON.Color3(base.r * pulse, base.g * pulse, base.b * pulse);
+    }
+    if (player.mesh.getChildren && !(player.mesh instanceof BABYLON.AbstractMesh)) {
+      player.mesh.getChildren().filter(m => m instanceof BABYLON.Mesh).forEach(m => { try { highlightLayer.addMesh(m, color); } catch {} });
+    } else { try { highlightLayer.addMesh(player.mesh, color); } catch {} }
+  } catch {}
+}
+
+// Engine glow emissive pulse helper
+function updateEngineGlow(entity) {
+  if (!entity || !entity.engineGlow || !entity.engineGlow.material) return;
+  try {
+    const baseColor = new BABYLON.Color3(1.0, 0.5, 0.1);
+    const pulseFactor = (entity.charge && entity.charge >= MAX_CHARGE * 0.8)
+      ? (0.3 + 0.7 * (0.5 + 0.5 * Math.sin(gameState.numFrame * 0.2)))
+      : 0.25;
+    entity.engineGlow.material.emissiveColor = baseColor.scale(pulseFactor);
+  } catch {}
+}
+
+// Emit engine flame helper (generic)
+function maybeEmitEngineFlame(entity, offsetFromHalf = 0) {
+  try {
+    if (engineFlamesEnabled && temporizes(6)) {
+      const y = entity.y + (entity.height / 2) + (offsetFromHalf || 0);
+      debrisEntities.push(new EngineFlame(entity.x, y));
+    }
+  } catch {}
+}
+
+// Expose helpers globally
+window.updateEntityMeshPosition = updateEntityMeshPosition;
+window.syncEntityVisual = syncEntityVisual;
+window.updateBankingRotation = updateBankingRotation;
+window.updatePlayerHighlight = updatePlayerHighlight;
+window.updateEngineGlow = updateEngineGlow;
+window.maybeEmitEngineFlame = maybeEmitEngineFlame;
