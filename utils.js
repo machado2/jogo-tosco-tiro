@@ -37,6 +37,14 @@ function triggerShake(intensity = 2, frames = 10) {
 function flashMesh(mesh, color = new BABYLON.Color3(1, 1, 1), durationMs = 80) {
   if (!mesh || typeof highlightLayer === 'undefined' || !highlightLayer) return;
   try {
+    // If a group (TransformNode), apply highlight to child meshes
+    if (mesh.getChildren && !(mesh instanceof BABYLON.AbstractMesh)) {
+      const children = mesh.getChildren().filter(c => c instanceof BABYLON.Mesh);
+      children.forEach(m => { try { highlightLayer.addMesh(m, color); } catch {} });
+      setTimeout(() => { children.forEach(m => { try { highlightLayer.removeMesh(m); } catch {} }); }, durationMs);
+      return;
+    }
+    // Single mesh
     highlightLayer.addMesh(mesh, color);
     setTimeout(() => { try { highlightLayer.removeMesh(mesh); } catch {} }, durationMs);
   } catch {}

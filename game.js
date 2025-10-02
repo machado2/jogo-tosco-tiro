@@ -246,8 +246,11 @@ function createScene() {
     // Initialize HUD helpers
     if (typeof initHUD === 'function') initHUD();
 
-    // Create initial player
-    friendlyEntities.push(new Player());
+    // Preload spaceship assets, then create player
+    gameState.playerAlive = false;
+    loadSpaceshipAssets(() => {
+        friendlyEntities.push(new Player());
+    });
 
     // Input handling (mouse + pointer)
     const updateCursor = (clientX, clientY) => {
@@ -368,3 +371,45 @@ function createScene() {
 window.addEventListener('DOMContentLoaded', createScene);
 
 // Starfield moved to starfield.js
+
+function loadSpaceshipAssets(onReady) {
+    // Load two OBJ ships: one for player, one for enemy. Fall back gracefully on errors.
+    let pending = 2;
+    const checkDone = () => { pending--; if (pending <= 0) { try { onReady && onReady(); } catch {} } };
+
+    try {
+        BABYLON.SceneLoader.ImportMesh("", "assets/ultimate_spaceships/Striker/OBJ/", "Striker.obj", scene,
+            (meshes) => {
+                try {
+                    window.spaceshipMeshes = window.spaceshipMeshes || {};
+                    const root = new BABYLON.TransformNode("playerBase", scene);
+                    meshes.forEach(m => { try { m.parent = root; m.renderingGroupId = 1; } catch {} });
+                    // Keep base orientation; per-instance rotation will be applied when building meshes
+                    root.setEnabled(false);
+                    window.spaceshipMeshes.player = root;
+                } catch {}
+                checkDone();
+            },
+            undefined,
+            (scene, message, exception) => { console.warn("Failed to load player ship:", message); checkDone(); }
+        );
+    } catch { checkDone(); }
+
+    try {
+        BABYLON.SceneLoader.ImportMesh("", "assets/ultimate_spaceships/Insurgent/OBJ/", "Insurgent.obj", scene,
+            (meshes) => {
+                try {
+                    window.spaceshipMeshes = window.spaceshipMeshes || {};
+                    const root = new BABYLON.TransformNode("enemyBase", scene);
+                    meshes.forEach(m => { try { m.parent = root; m.renderingGroupId = 1; } catch {} });
+                    // Keep base orientation; per-instance rotation will be applied when building meshes
+                    root.setEnabled(false);
+                    window.spaceshipMeshes.enemy = root;
+                } catch {}
+                checkDone();
+            },
+            undefined,
+            (scene, message, exception) => { console.warn("Failed to load enemy ship:", message); checkDone(); }
+        );
+    } catch { checkDone(); }
+}

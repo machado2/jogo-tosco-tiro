@@ -54,7 +54,16 @@ class Entity {
                 totalDebrisCount++;
             }
         }
-        if (this.mesh) { this.mesh.dispose(); this.mesh = null; }
+        if (this.mesh) {
+            try {
+                // If root is a group (TransformNode), dispose its children first
+                if (this.mesh.getChildren && !(this.mesh instanceof BABYLON.AbstractMesh)) {
+                    this.mesh.getChildren().forEach(ch => { try { ch.dispose(); } catch {} });
+                }
+                this.mesh.dispose();
+            } catch {}
+            this.mesh = null;
+        }
     }
 
     update() {}
@@ -103,7 +112,19 @@ class Player extends Entity {
         this.releaseDebris = 80;
         this.mesh = buildPlayerShipMesh();
         fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
-        if (highlightLayer) { try { highlightLayer.addMesh(this.mesh, new BABYLON.Color3(0.2, 0.6, 1)); } catch {} }
+        if (highlightLayer) { 
+            try { 
+                // Highlight group children or single mesh
+                if (this.mesh.getChildren && !(this.mesh instanceof BABYLON.AbstractMesh)) {
+                    this.mesh.getChildren().filter(m => m instanceof BABYLON.Mesh).forEach(m => { try { highlightLayer.addMesh(m, new BABYLON.Color3(0.2, 0.6, 1)); } catch {} });
+                } else {
+                    highlightLayer.addMesh(this.mesh, new BABYLON.Color3(0.2, 0.6, 1));
+                }
+            } catch {} 
+        }
+        // Base rotations (top-down fix): mantenha X fixo em 90° e use Z para inclinar
+        this.baseRotX = this.mesh.rotation.x || 0;
+        this.baseRotZ = this.mesh.rotation.z || 0;
         gameState.playerAlive = true;
     }
     update() {
@@ -113,8 +134,10 @@ class Player extends Entity {
         this.keepOnScreen();
         const vx = this.x - this.prevX; const vy = this.y - this.prevY;
         if (this.mesh) {
-            this.mesh.rotation.z = BABYLON.Scalar.Lerp(this.mesh.rotation.z || 0, -vx * 0.03, 0.2);
-            this.mesh.rotation.x = BABYLON.Scalar.Lerp(this.mesh.rotation.x || 0, vy * 0.02, 0.2);
+            const targetZ = BABYLON.Scalar.Clamp(-vx * 0.11, -1.1, 1.1);
+            // Não altere o X-base (top-down). Remova o tilt em X baseado no mouse
+            this.mesh.rotation.z = BABYLON.Scalar.Lerp(this.mesh.rotation.z || this.baseRotZ, this.baseRotZ + targetZ, 0.26);
+            this.mesh.rotation.x = BABYLON.Scalar.Lerp(this.mesh.rotation.x || this.baseRotX, this.baseRotX, 0.26);
         }
         this.prevX = this.x; this.prevY = this.y;
         if (this.charge < MAX_CHARGE) this.charge = Math.min(MAX_CHARGE, this.charge + CHARGE_REFILL_PER_FRAME);
@@ -143,16 +166,40 @@ class Missile extends Entity {
         this.incX = sign(this.dirX); this.incY = sign(this.dirY);
         this.dirX = Math.abs(this.dirX); this.dirY = Math.abs(this.dirY);
         this.restoX = 0; this.restoY = 0; this.releaseDebris = 4; this.friendly = friendly;
+        this.light = null;
         this.mesh = BABYLON.MeshBuilder.CreateSphere("missile", { diameter: 1 }, scene);
         const color = friendly ? new BABYLON.Color3(0, 0.6, 1) : new BABYLON.Color3(1, 0.2, 0);
-        this.mesh.material = createMaterial(friendly ? "friendlyMissile" : "enemyMissile", color);
+        // Use a lit PBR material so lights can affect it
+        this.mesh.material = createLitMaterial(friendly ? "friendlyMissileLit" : "enemyMissileLit", color, 0.25);
         this.mesh.renderingGroupId = 1; fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
+        registerGlowMesh(this.mesh); // allow missile to contribute to glow a bit
+        // Some missiles emit light
+        const prob = this.friendly ? 0.4 : 0.25;
+        if (Math.random() < prob) {
+            try {
+                const light = new BABYLON.PointLight("missileLight", new BABYLON.Vector3(0, 0, 0), scene);
+                light.diffuse = this.friendly ? new BABYLON.Color3(0.4, 0.8, 1.0) : new BABYLON.Color3(1.0, 0.4, 0.2);
+                light.specular = new BABYLON.Color3(1, 1, 1);
+                light.intensity = this.friendly ? 0.85 : 0.7;
+                light.range = 32;
+                if (BABYLON.Light && typeof BABYLON.Light.FALLOFF_PHYSICAL !== 'undefined') {
+                    light.falloffType = BABYLON.Light.FALLOFF_PHYSICAL;
+                }
+                light.parent = this.mesh; // follow missile automatically
+                this.light = light;
+            } catch {}
+        }
     }
     update() {
         this.restoX += this.dirX; this.restoY += this.dirY;
         while (this.restoX >= 100) { this.restoX -= 100; this.x += this.incX; }
         while (this.restoY >= 100) { this.restoY -= 100; this.y += this.incY; }
         if (this.isOffScreen()) this.destroy(); this.updateMeshPosition();
+    }
+    destroy() {
+        if (!this.alive) return; // avoid double-dispose
+        super.destroy();
+        if (this.light) { try { this.light.dispose(); } catch {} this.light = null; }
     }
 }
 
@@ -199,10 +246,17 @@ class EngineFlame extends Entity {
 
 class Enemy extends Entity {
     constructor() {
-        super(random(SCREEN_WIDTH - 60) + 30, 30, 20, 20); this.energy = ENEMY_HEALTH;
+        // Increase logical size so imported models scale larger
+        super(random(SCREEN_WIDTH - 60) + 30, 30, 32, 32);
+        this.energy = ENEMY_HEALTH;
         this.movement = random(8); this.distance = random(50); this.shootTime = random(100) + 20; this.releaseDebris = 20;
         this.phase = Math.random() * Math.PI * 2; this.speed = 0.8 + Math.random() * 1.4;
-        this.mesh = buildBasicEnemyMesh(); fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
+        this.mesh = buildBasicEnemyMesh();
+        fitMeshToPixels(this.mesh, this.width, this.height);
+        this.updateMeshPosition();
+        // Preserve base orientation para top-down
+        this.baseRotX = this.mesh.rotation.x || 0;
+        this.baseRotZ = this.mesh.rotation.z || 0;
         gameState.enemyPopulation++;
     }
     update() {
@@ -222,7 +276,12 @@ class Enemy extends Entity {
         if (this.x - 20 < 0) { this.movement = 3; this.distance = 10; }
         if (!this.shootTime) { this.shootTime = random(180) + 20; enemyEntities.push(new Missile(this.x - 9, this.y + 20, 0, 3, false)); enemyEntities.push(new Missile(this.x + 9, this.y + 20, 0, 3, false)); } else { this.shootTime--; }
         if (engineFlamesEnabled && temporizes(6)) debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2));
-        const vx = this.x - oldX; const vy = this.y - oldY; if (this.mesh) { this.mesh.rotation.z = BABYLON.Scalar.Lerp(this.mesh.rotation.z || 0, -vx * 0.04, 0.15); this.mesh.rotation.x = BABYLON.Scalar.Lerp(this.mesh.rotation.x || 0, vy * 0.03, 0.15); }
+const vx = this.x - oldX; const vy = this.y - oldY; if (this.mesh) {
+            const targetZ = BABYLON.Scalar.Clamp(-vx * 0.12, -1.1, 1.1);
+            // Enemies devem manter X-base e apenas inclinar em Z (banking)
+            this.mesh.rotation.z = BABYLON.Scalar.Lerp(this.mesh.rotation.z || this.baseRotZ, this.baseRotZ + targetZ, 0.24);
+            this.mesh.rotation.x = BABYLON.Scalar.Lerp(this.mesh.rotation.x || this.baseRotX, this.baseRotX, 0.24);
+        }
         this.updateMeshPosition();
     }
     onDestroy() { gameState.enemyPopulation--; gameState.score += POINTS_ENEMY; audioSystem.playExplosion(); triggerShake(1.2, 8); }
