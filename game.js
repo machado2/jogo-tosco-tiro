@@ -529,7 +529,12 @@ class Player extends Entity {
         if (this.charge >= MAX_CHARGE && this.energy < MAX_HEALTH && temporizes(10)) {
             this.energy++;
         }
-
+        
+        // Player engine flame
+        if (temporizes(2)) {
+            debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2 - 4));
+        }
+        
         gameState.playerHealth = this.energy;
         gameState.playerCharge = this.charge;
         gameState.playerX = this.x;
@@ -637,7 +642,7 @@ class Laser extends Entity {
         this.energy = 2;
         this.releaseDebris = 4;
         
-this.mesh = BABYLON.MeshBuilder.CreateBox("laser", { width: 1, height: 1, depth: 0.3 }, scene);
+        this.mesh = BABYLON.MeshBuilder.CreateBox("laser", { width: 1, height: 1, depth: 0.3 }, scene);
         this.mesh.material = createMaterial("laser", new BABYLON.Color3(0, 1, 1));
         this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
@@ -649,6 +654,34 @@ this.mesh = BABYLON.MeshBuilder.CreateBox("laser", { width: 1, height: 1, depth:
         this.y -= 10;
         this.x = gameState.playerX;
         if (this.y < 40) this.destroy();
+        this.updateMeshPosition();
+    }
+}
+
+// Engine flame particle
+class EngineFlame extends Entity {
+    constructor(x, y) {
+        super(x, y, 6, 6);
+        this.life = 14;
+        this.velX = (Math.random() - 0.5) * 2;
+        this.velY = 2 + Math.random() * 1.5;
+        this.mesh = BABYLON.MeshBuilder.CreateDisc("engineFlame", { radius: 0.5, tessellation: 16 }, scene);
+        const mat = createMaterial("engineFlameMat", new BABYLON.Color3(1.0, 0.5, 0.1));
+        this.mesh.material = mat;
+        this.mesh.renderingGroupId = 1;
+        this.mesh.billboardMode = BABYLON.AbstractMesh.BILLBOARDMODE_ALL;
+        this.mesh.material.alpha = 0.8;
+        fitMeshToPixels(this.mesh, this.width, this.height);
+        registerGlowMesh(this.mesh);
+        this.updateMeshPosition();
+    }
+    update() {
+        this.x += this.velX;
+        this.y += this.velY;
+        if (this.mesh && this.mesh.material) {
+            this.mesh.material.alpha *= 0.88;
+        }
+        if (--this.life <= 0) this.destroy();
         this.updateMeshPosition();
     }
 }
@@ -730,6 +763,9 @@ class Enemy extends Entity {
         } else {
             this.shootTime--;
         }
+        
+        // Occasional engine trail for enemies
+        if (temporizes(6)) debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2));
         
         // Tilt to direction of travel
         const vx = this.x - oldX;
