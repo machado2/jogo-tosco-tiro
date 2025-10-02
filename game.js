@@ -139,6 +139,12 @@ function ensureEnvironment() {
     }
 }
 
+function registerGlowMesh(mesh) {
+    if (glowLayer && glowLayer.addIncludedOnlyMesh) {
+        try { glowLayer.addIncludedOnlyMesh(mesh); } catch {}
+    }
+}
+
 function colorToCSS(c) {
     return `rgb(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)})`;
 }
@@ -226,14 +232,17 @@ function buildPlayerShipMesh() {
     const canopy = BABYLON.MeshBuilder.CreateSphere("canopy", { diameter: 0.7 }, scene);
     canopy.position.y = 0.25; canopy.position.z = 0.25; canopy.material = glass;
 
-    const engine = BABYLON.MeshBuilder.CreatePlane("engineGlow", { size: 0.7 }, scene);
+const engine = BABYLON.MeshBuilder.CreatePlane("engineGlow", { size: 0.7 }, scene);
     engine.billboardMode = BABYLON.AbstractMesh.BILLBOARDMODE_ALL;
     engine.position.y = -1.25; engine.position.z = -0.1;
     const engineMat = createMaterial("engineGlowMat", new BABYLON.Color3(1.0, 0.5, 0.1));
     engine.material = engineMat;
 
-    const merged = BABYLON.Mesh.MergeMeshes([fuselage, wingL, wingR, fin, canopy, engine], true, true, undefined, false, true);
+    const merged = BABYLON.Mesh.MergeMeshes([fuselage, wingL, wingR, fin, canopy], true, true, undefined, false, true);
     merged.renderingGroupId = 1;
+    engine.parent = merged;
+    engine.renderingGroupId = 1;
+    registerGlowMesh(engine);
     return merged;
 }
 
@@ -586,6 +595,7 @@ this.mesh = BABYLON.MeshBuilder.CreateSphere("nuclear", { diameter: size }, scen
         this.mesh.material = createMaterial("nuclear", new BABYLON.Color3(1, 0, 0));
         this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
+        registerGlowMesh(this.mesh);
         this.updateMeshPosition();
     }
 
@@ -617,6 +627,7 @@ this.mesh = BABYLON.MeshBuilder.CreateBox("laser", { width: 1, height: 1, depth:
         this.mesh.material = createMaterial("laser", new BABYLON.Color3(0, 1, 1));
         this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
+        registerGlowMesh(this.mesh);
         this.updateMeshPosition();
     }
 
@@ -1113,16 +1124,18 @@ function createScene() {
     
     // Post FX: glow + bloom + FXAA + vignette
     try {
-        glowLayer = new BABYLON.GlowLayer("glow", scene, { blurKernelSize: 64 });
-        glowLayer.intensity = 0.6;
+        glowLayer = new BABYLON.GlowLayer("glow", scene, { blurKernelSize: 48 });
+        glowLayer.intensity = 0.25; // toned down overall
+        // Only meshes we explicitly include will glow
+        glowLayer.neutralColor = new BABYLON.Color3(0, 0, 0);
         highlightLayer = new BABYLON.HighlightLayer("hl", scene, { blurTextureSizeRatio: 0.5 });
         renderingPipeline = new BABYLON.DefaultRenderingPipeline("default", true, scene, [camera]);
         renderingPipeline.fxaaEnabled = true;
         renderingPipeline.bloomEnabled = true;
-        renderingPipeline.bloomKernel = 64;
+        renderingPipeline.bloomKernel = 48;
         renderingPipeline.bloomScale = 0.5;
-        renderingPipeline.bloomThreshold = 0.6;
-        renderingPipeline.bloomWeight = 0.5;
+        renderingPipeline.bloomThreshold = 0.8; // require brighter emissive to bloom
+        renderingPipeline.bloomWeight = 0.22; // less bloom
         renderingPipeline.imageProcessingEnabled = true;
         renderingPipeline.imageProcessing.contrast = 1.08;
         renderingPipeline.imageProcessing.exposure = 1.05;
@@ -1135,7 +1148,7 @@ function createScene() {
     initDebrisPool();
 
     // Background starfield
-    starfield = new Starfield(280);
+    starfield = new Starfield(180);
 
     // Create initial player
     friendlyEntities.push(new Player());
@@ -1273,14 +1286,14 @@ class Starfield {
             inst.renderingGroupId = 0;
             inst.position.x = Math.random() * SCREEN_WIDTH - SCREEN_WIDTH / 2;
             inst.position.y = Math.random() * SCREEN_HEIGHT - SCREEN_HEIGHT / 2;
-            inst.scaling.x = inst.scaling.y = 0.5 + Math.random() * 1.5;
+inst.scaling.x = inst.scaling.y = 0.2 + Math.random() * 0.6; // smaller stars
             // Slight color variation (blue/cool white)
-            const c = (i % 5 === 0)
+            const c = (i % 6 === 0)
                 ? new BABYLON.Color3(0.6, 0.7, 1)
                 : new BABYLON.Color3(1, 1, 1);
             inst.material = mat.clone("starMatInst" + i);
             inst.material.emissiveColor = c;
-            const speed = 0.4 + Math.random() * 1.2; // parallax speed
+            const speed = 0.15 + Math.random() * 0.35; // slower for depth
             this.stars.push({ mesh: inst, speed });
         }
     }
