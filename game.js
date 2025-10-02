@@ -228,7 +228,8 @@ function createScene() {
 
     // Simple ambient setup
     const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
-    light.intensity = 0.6;
+    light.intensity = 1.0;
+    light.groundColor = new BABYLON.Color3(0.3, 0.3, 0.3);
 
     // Environment for PBR metals
     ensureEnvironment();
@@ -252,7 +253,7 @@ function createScene() {
         renderingPipeline.imageProcessing.exposure = 1.05;
         renderingPipeline.imageProcessing.vignetteEnabled = true;
         renderingPipeline.imageProcessing.vignetteColor = new BABYLON.Color4(0, 0, 0, 1);
-        renderingPipeline.imageProcessing.vignetteWeight = 0.9;
+        renderingPipeline.imageProcessing.vignetteWeight = 0.6;
     } catch { }
 
     // Initialize pooled debris

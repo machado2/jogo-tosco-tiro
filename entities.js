@@ -190,7 +190,7 @@ class Player extends Entity {
         if (this.charge < MAX_CHARGE) this.charge = Math.min(MAX_CHARGE, this.charge + CHARGE_REFILL_PER_FRAME);
         if (this.shootTime < 1000) this.shootTime++;
         if (this.charge >= 20 && this.shootTime >= 5 && gameState.leftButton) {
-            this.shootTime = 0; this.charge -= 10;
+            this.shootTime = 0; this.charge -= 1;
             if (gameState.score >= 500) { friendlyEntities.push(new Laser()); audioSystem.playLaser(); }
             else { friendlyEntities.push(new Missile(this.x, this.y - 5, 0, -10, true)); audioSystem.playShoot(); }
         }
@@ -243,22 +243,21 @@ class Missile extends Entity {
         this.mesh.material = createLitMaterial(friendly ? "friendlyMissileLit" : "enemyMissileLit", color, 0.25);
         this.mesh.renderingGroupId = 1; fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
         registerGlowMesh(this.mesh); // allow missile to contribute to glow a bit
-        // Some missiles emit light
-        const prob = this.friendly ? 0.4 : 0.25;
-        if (Math.random() < prob) {
-            try {
-                const light = new BABYLON.PointLight("missileLight", new BABYLON.Vector3(0, 0, 0), scene);
-                light.diffuse = this.friendly ? new BABYLON.Color3(0.4, 0.8, 1.0) : new BABYLON.Color3(1.0, 0.4, 0.2);
-                light.specular = new BABYLON.Color3(1, 1, 1);
-                light.intensity = this.friendly ? 0.85 : 0.7;
-                light.range = 32;
-                if (BABYLON.Light && typeof BABYLON.Light.FALLOFF_PHYSICAL !== 'undefined') {
-                    light.falloffType = BABYLON.Light.FALLOFF_PHYSICAL;
-                }
-                light.parent = this.mesh; // follow missile automatically
-                this.light = light;
-            } catch {}
-        }
+        // Todas as balas emitem luz (teste de performance)
+        try {
+            const light = new BABYLON.PointLight("missileLight", new BABYLON.Vector3(0, 0, 0), scene);
+            light.diffuse = this.friendly ? new BABYLON.Color3(0.35, 0.8, 1.0) : new BABYLON.Color3(1.0, 0.45, 0.25);
+            light.specular = new BABYLON.Color3(1, 1, 1);
+            light.intensity = this.friendly ? 1.1 : 1.0;
+            light.range = 48;
+            if (BABYLON.Light && typeof BABYLON.Light.FALLOFF_PHYSICAL !== 'undefined') {
+                light.falloffType = BABYLON.Light.FALLOFF_PHYSICAL;
+            }
+            light.parent = this.mesh;
+            // mover levemente a luz para fora do centro do projétil
+            light.position = new BABYLON.Vector3(0.4, 0.4, -0.1);
+            this.light = light;
+        } catch {}
     }
     update() {
         this.restoX += this.dirX; this.restoY += this.dirY;
@@ -297,10 +296,30 @@ class Laser extends Entity {
     constructor() {
         super(gameState.playerX, gameState.playerY - 10, SizesConfig.laser.width, SizesConfig.laser.height); this.energy = 2; this.releaseDebris = 4;
         this.mesh = BABYLON.MeshBuilder.CreateBox("laser", { width: 1, height: 1, depth: 0.3 }, scene);
-        this.mesh.material = createMaterial("laser", new BABYLON.Color3(0, 1, 1)); this.mesh.renderingGroupId = 1;
+        this.mesh.material = createLitMaterial("laserLit", new BABYLON.Color3(0, 1, 1), 0.35); this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height); registerGlowMesh(this.mesh); this.updateMeshPosition();
+        // Luz acoplada ao laser para teste
+        this.light = null;
+        try {
+            const light = new BABYLON.PointLight("laserLight", new BABYLON.Vector3(0, 0, 0), scene);
+            light.diffuse = new BABYLON.Color3(0.2, 0.9, 1.0);
+            light.specular = new BABYLON.Color3(1, 1, 1);
+            light.intensity = 0.9;
+            light.range = 40;
+            if (BABYLON.Light && typeof BABYLON.Light.FALLOFF_PHYSICAL !== 'undefined') {
+                light.falloffType = BABYLON.Light.FALLOFF_PHYSICAL;
+            }
+            light.parent = this.mesh;
+            light.position = new BABYLON.Vector3(0, 0.4, -0.1);
+            this.light = light;
+        } catch {}
     }
     update() { this.y -= 10; this.x = gameState.playerX; if (this.y < 40) this.destroy(); this.updateMeshPosition(); }
+    destroy() {
+        if (!this.alive) return;
+        super.destroy();
+        if (this.light) { try { this.light.dispose(); } catch {} this.light = null; }
+    }
 }
 
 class EngineFlame extends Entity {
@@ -394,7 +413,7 @@ class Guided extends Entity {
 
 class Star extends Entity {
     constructor() {
-        super(random(SCREEN_WIDTH - 80) + 40, 40, SizesConfig.star.width, SizesConfig.star.height); this.energy = 100; this.releaseDebris = 500;
+        super(random(SCREEN_WIDTH - 80) + 40, 40, SizesConfig.star.width, SizesConfig.star.height); this.energy = 10; this.releaseDebris = 500;
         this.mesh = BABYLON.MeshBuilder.CreateDisc("star", { radius: 1, tessellation: 5 }, scene);
         this.mesh.material = createMaterial("star", new BABYLON.Color3(1, 1, 0)); this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();

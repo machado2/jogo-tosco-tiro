@@ -25,17 +25,17 @@ const ShipConfig = {
   },
   // Variantes de inimigos disponíveis (usar OBJ locais)
   enemyVariants: [
-    { name: "Bob", rootUrl: "assets/ultimate_spaceships/Bob/OBJ/", fileName: "Bob.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
-    { name: "Challenger", rootUrl: "assets/ultimate_spaceships/Challenger/OBJ/", fileName: "Challenger.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
-    { name: "Dispatcher", rootUrl: "assets/ultimate_spaceships/Dispatcher/OBJ/", fileName: "Dispatcher.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
-    { name: "Executioner", rootUrl: "assets/ultimate_spaceships/Executioner/OBJ/", fileName: "Executioner.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
-    { name: "Imperial", rootUrl: "assets/ultimate_spaceships/Imperial/OBJ/", fileName: "Imperial.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
-    { name: "Insurgent", rootUrl: "assets/ultimate_spaceships/Insurgent/OBJ/", fileName: "Insurgent.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
-    { name: "Omen", rootUrl: "assets/ultimate_spaceships/Omen/OBJ/", fileName: "Omen.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
-    { name: "Pancake", rootUrl: "assets/ultimate_spaceships/Pancake/OBJ/", fileName: "Pancake.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
-    { name: "Spitfire", rootUrl: "assets/ultimate_spaceships/Spitfire/OBJ/", fileName: "Spitfire.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
-    { name: "Striker", rootUrl: "assets/ultimate_spaceships/Striker/OBJ/", fileName: "Striker.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
-    { name: "Zenith", rootUrl: "assets/ultimate_spaceships/Zenith/OBJ/", fileName: "Zenith.obj", rotationX: Math.PI / 2, rotationZ: Math.PI }
+    { name: "Bob", rootUrl: "assets/ultimate_spaceships/Bob/OBJ/", fileName: "Bob.obj", rotationX: Math.PI / 2, rotationZ: Math.PI, textureUrl: "assets/ultimate_spaceships/Bob/Textures/Bob_Orange.png" },
+    { name: "Challenger", rootUrl: "assets/ultimate_spaceships/Challenger/OBJ/", fileName: "Challenger.obj", rotationX: Math.PI / 2, rotationZ: Math.PI, textureUrl: "assets/ultimate_spaceships/Challenger/Textures/Challenger_Green.png" },
+    { name: "Dispatcher", rootUrl: "assets/ultimate_spaceships/Dispatcher/OBJ/", fileName: "Dispatcher.obj", rotationX: Math.PI / 2, rotationZ: Math.PI, textureUrl: "assets/ultimate_spaceships/Dispatcher/Textures/Dispatcher_Purple.png" },
+    { name: "Executioner", rootUrl: "assets/ultimate_spaceships/Executioner/OBJ/", fileName: "Executioner.obj", rotationX: Math.PI / 2, rotationZ: Math.PI, textureUrl: "assets/ultimate_spaceships/Executioner/Textures/Executioner_Blue.png" },
+    { name: "Imperial", rootUrl: "assets/ultimate_spaceships/Imperial/OBJ/", fileName: "Imperial.obj", rotationX: Math.PI / 2, rotationZ: Math.PI, textureUrl: "assets/ultimate_spaceships/Imperial/Textures/Imperial_Red.png" },
+    { name: "Insurgent", rootUrl: "assets/ultimate_spaceships/Insurgent/OBJ/", fileName: "Insurgent.obj", rotationX: Math.PI / 2, rotationZ: Math.PI, textureUrl: "assets/ultimate_spaceships/Insurgent/Textures/Insurgent_Purple.png" },
+    { name: "Omen", rootUrl: "assets/ultimate_spaceships/Omen/OBJ/", fileName: "Omen.obj", rotationX: Math.PI / 2, rotationZ: Math.PI, textureUrl: "assets/ultimate_spaceships/Omen/Textures/Omen_Orange.png" },
+    { name: "Pancake", rootUrl: "assets/ultimate_spaceships/Pancake/OBJ/", fileName: "Pancake.obj", rotationX: Math.PI / 2, rotationZ: Math.PI, textureUrl: "assets/ultimate_spaceships/Pancake/Textures/Pancake_Orange.png" },
+    { name: "Spitfire", rootUrl: "assets/ultimate_spaceships/Spitfire/OBJ/", fileName: "Spitfire.obj", rotationX: Math.PI / 2, rotationZ: Math.PI, textureUrl: "assets/ultimate_spaceships/Spitfire/Textures/Spitfire_Red.png" },
+    { name: "Striker", rootUrl: "assets/ultimate_spaceships/Striker/OBJ/", fileName: "Striker.obj", rotationX: Math.PI / 2, rotationZ: Math.PI, textureUrl: "assets/ultimate_spaceships/Striker/Textures/Striker_Blue.png" },
+    { name: "Zenith", rootUrl: "assets/ultimate_spaceships/Zenith/OBJ/", fileName: "Zenith.obj", rotationX: Math.PI / 2, rotationZ: Math.PI, textureUrl: "assets/ultimate_spaceships/Zenith/Textures/Zenith_Red.png" }
   ]
 };
 
@@ -80,11 +80,14 @@ function registerGlowMesh(mesh) {
 function applyShipTextureToGroup(groupNode, textureUrl) {
   if (!groupNode || !textureUrl) return;
   try {
+    ensureEnvironment();
     const tex = new BABYLON.Texture(textureUrl, scene, true, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
-    const mat = new BABYLON.StandardMaterial("shipTexMat_" + (groupNode.name || "root"), scene);
-    mat.diffuseTexture = tex;
-    mat.specularColor = new BABYLON.Color3(0, 0, 0);
-    mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+    const mat = new BABYLON.PBRMaterial("shipTexMat_" + (groupNode.name || "root"), scene);
+    mat.albedoTexture = tex;
+    mat.metallic = 0.0;
+    mat.roughness = 0.6;
+    mat.environmentIntensity = 1.3;
+    mat.emissiveColor = new BABYLON.Color3(0.12, 0.12, 0.12);
     const parts = groupNode.getChildren ? groupNode.getChildren().filter(c => c instanceof BABYLON.Mesh) : [];
     parts.forEach(p => { try { p.material = mat; } catch {} });
   } catch (e) {
