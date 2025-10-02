@@ -6,6 +6,8 @@ class AudioSystem {
         this.initialized = false;
     }
 
+    _rand(min, max) { return Math.random() * (max - min) + min; }
+
     init() {
         try {
             if (!this.audioContext) {
@@ -31,8 +33,9 @@ class AudioSystem {
         const gain = this.audioContext.createGain();
         
         osc.type = 'square';
-        osc.frequency.setValueAtTime(300, now);
-        osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+        const startF = this._rand(280, 340);
+        osc.frequency.setValueAtTime(startF, now);
+        osc.frequency.exponentialRampToValueAtTime(this._rand(90, 120), now + 0.1);
         
         gain.gain.setValueAtTime(0.2, now);
         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
@@ -52,8 +55,9 @@ class AudioSystem {
         const gain = this.audioContext.createGain();
         
         osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(600, now);
-        osc.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+        const startF = this._rand(550, 700);
+        osc.frequency.setValueAtTime(startF, now);
+        osc.frequency.exponentialRampToValueAtTime(this._rand(180, 240), now + 0.15);
         
         gain.gain.setValueAtTime(0.15, now);
         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
@@ -99,6 +103,26 @@ class AudioSystem {
         noise.stop(now + 0.3);
     }
 
+    playExplosionBig() {
+        if (!this.initialized) return;
+        const now = this.audioContext.currentTime;
+        const bufferSize = this.audioContext.sampleRate * 0.6;
+        const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        const noise = this.audioContext.createBufferSource();
+        noise.buffer = buffer;
+        const filter = this.audioContext.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1800, now);
+        filter.frequency.exponentialRampToValueAtTime(80, now + 0.6);
+        const gain = this.audioContext.createGain();
+        gain.gain.setValueAtTime(0.4, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+        noise.connect(filter); filter.connect(gain); gain.connect(this.masterGain);
+        noise.start(now); noise.stop(now + 0.6);
+    }
+
     playHit() {
         if (!this.initialized) return;
         
@@ -107,8 +131,9 @@ class AudioSystem {
         const gain = this.audioContext.createGain();
         
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(150, now);
-        osc.frequency.exponentialRampToValueAtTime(50, now + 0.08);
+        const base = this._rand(130, 180);
+        osc.frequency.setValueAtTime(base, now);
+        osc.frequency.exponentialRampToValueAtTime(this._rand(45, 65), now + 0.08);
         
         gain.gain.setValueAtTime(0.25, now);
         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
@@ -118,6 +143,21 @@ class AudioSystem {
         
         osc.start(now);
         osc.stop(now + 0.08);
+    }
+
+    playImpact() {
+        if (!this.initialized) return;
+        const now = this.audioContext.currentTime;
+        const osc = this.audioContext.createOscillator();
+        const gain = this.audioContext.createGain();
+        osc.type = 'square';
+        const f = this._rand(350, 500);
+        osc.frequency.setValueAtTime(f, now);
+        osc.frequency.exponentialRampToValueAtTime(this._rand(180, 250), now + 0.04);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.04);
+        osc.connect(gain); gain.connect(this.masterGain);
+        osc.start(now); osc.stop(now + 0.05);
     }
 
     playPowerup() {

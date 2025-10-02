@@ -544,8 +544,8 @@ class Player extends Entity {
     }
 
     onDestroy() {
-        gameState.playerAlive = false;
-        audioSystem.playExplosion();
+        gameState.enemyPopulation--;
+        audioSystem.playExplosionBig();
         gameState.deathSequenceFrames = DEATH_OVERLAY_DELAY_FRAMES;
     }
 }
@@ -745,7 +745,7 @@ class Enemy extends Entity {
     onDestroy() {
         gameState.enemyPopulation--;
         gameState.score += POINTS_ENEMY;
-        audioSystem.playHit();
+        audioSystem.playExplosion();
     }
 }
 
@@ -816,6 +816,7 @@ class Meteor extends Entity {
 
     onDestroy() {
         gameState.score += POINTS_METEOR;
+        audioSystem.playExplosion();
     }
 }
 
@@ -937,8 +938,9 @@ this.mesh = BABYLON.MeshBuilder.CreateTorus("rain", { diameter: 1, thickness: 0.
 
     onDestroy() {
         gameState.score += POINTS_CHUVA;
-        audioSystem.playPowerup();
+        audioSystem.playExplosionBig();
     }
+   }
 }
 
 // Metralha (shoots at player)
@@ -982,7 +984,7 @@ class Metralha extends Entity {
 
     onDestroy() {
         gameState.score += POINTS_METRALHA;
-        audioSystem.playPowerup();
+        audioSystem.playExplosion();
     }
 }
 
@@ -1006,6 +1008,10 @@ class Transport extends Entity {
         if (++this.x > SCREEN_WIDTH) this.destroy();
         this.updateMeshPosition();
     }
+
+    onDestroy() {
+        audioSystem.playExplosionBig();
+    }
 }
 
 // Encrenca (spawns Rain)
@@ -1028,6 +1034,10 @@ class Encrenca extends Entity {
         if (++this.x > SCREEN_WIDTH) this.destroy();
         this.updateMeshPosition();
     }
+
+    onDestroy() {
+        audioSystem.playExplosionBig();
+    }
 }
 
 // Collision detection
@@ -1042,6 +1052,8 @@ function testCollision(a, b) {
         const ea = a.energy;
         a.takeDamage(b.energy);
         b.takeDamage(ea);
+        // Hit feedback
+        if (audioSystem && audioSystem.initialized) audioSystem.playImpact();
     }
 }
 
