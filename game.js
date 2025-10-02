@@ -96,12 +96,12 @@ function triggerShake(intensity = 2, frames = 10) {
     gameState.shakeFrames = frames;
 }
 
-function flashMesh(mesh, color = new BABYLON.Color3(1,1,1), durationMs = 80) {
+function flashMesh(mesh, color = new BABYLON.Color3(1, 1, 1), durationMs = 80) {
     if (!highlightLayer || !mesh) return;
     try {
         highlightLayer.addMesh(mesh, color);
-        setTimeout(() => { try { highlightLayer.removeMesh(mesh); } catch {} }, durationMs);
-    } catch {}
+        setTimeout(() => { try { highlightLayer.removeMesh(mesh); } catch { } }, durationMs);
+    } catch { }
 }
 
 // Material creation
@@ -151,13 +151,13 @@ function ensureEnvironment() {
                 "https://assets.babylonjs.com/environments/environmentSpecular.env",
                 scene
             );
-        } catch {}
+        } catch { }
     }
 }
 
 function registerGlowMesh(mesh) {
     if (glowLayer && glowLayer.addIncludedOnlyMesh) {
-        try { glowLayer.addIncludedOnlyMesh(mesh); } catch {}
+        try { glowLayer.addIncludedOnlyMesh(mesh); } catch { }
     }
 }
 
@@ -248,7 +248,7 @@ function buildPlayerShipMesh() {
     const canopy = BABYLON.MeshBuilder.CreateSphere("canopy", { diameter: 0.7 }, scene);
     canopy.position.y = 0.25; canopy.position.z = 0.25; canopy.material = glass;
 
-const engine = BABYLON.MeshBuilder.CreatePlane("engineGlow", { size: 0.7 }, scene);
+    const engine = BABYLON.MeshBuilder.CreatePlane("engineGlow", { size: 0.7 }, scene);
     engine.billboardMode = BABYLON.AbstractMesh.BILLBOARDMODE_ALL;
     engine.position.y = -1.25; engine.position.z = -0.1;
     const engineMat = createMaterial("engineGlowMat", new BABYLON.Color3(1.0, 0.5, 0.1));
@@ -354,7 +354,7 @@ class Entity {
 
     isOffScreen() {
         return (this.x - this.width < 0 || this.x + this.width > SCREEN_WIDTH) ||
-               (this.y - this.height < 0 || this.y + this.height > SCREEN_HEIGHT);
+            (this.y - this.height < 0 || this.y + this.height > SCREEN_HEIGHT);
     }
 
     keepOnScreen() {
@@ -414,7 +414,7 @@ class Debris extends Entity {
     constructor(x, y, angle = -1) {
         super(x, y, 1, 1);
         if (angle === -1) angle = Math.random() * 2 * Math.PI;
-        
+
         this.restoX = 0;
         this.restoY = 0;
         const vel = random(100);
@@ -425,7 +425,7 @@ class Debris extends Entity {
         this.dirX = Math.abs(this.dirX);
         this.dirY = Math.abs(this.dirY);
         this.dist = random(60);
-        
+
         // Use instanced mesh from pool
         this.mesh = debrisBaseMesh.createInstance("debrisInst");
         this.mesh.setEnabled(true);
@@ -435,7 +435,7 @@ class Debris extends Entity {
     update() {
         this.restoX += this.dirX;
         this.restoY += this.dirY;
-        
+
         while (this.restoX > 100) {
             this.restoX -= 100;
             this.x += this.incX;
@@ -444,7 +444,7 @@ class Debris extends Entity {
             this.restoY -= 100;
             this.y += this.incY;
         }
-        
+
         this.dist--;
         if (this.dist < 1) this.destroy();
         this.updateMeshPosition();
@@ -469,17 +469,17 @@ class Player extends Entity {
         this.charge = MAX_CHARGE;
         this.shootTime = 0;
         this.releaseDebris = 80;
-        
+
         // Create improved player mesh
         this.mesh = buildPlayerShipMesh();
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
-        
+
         // Subtle outline for the hero
         if (highlightLayer) {
-            try { highlightLayer.addMesh(this.mesh, new BABYLON.Color3(0.2, 0.6, 1)); } catch {}
+            try { highlightLayer.addMesh(this.mesh, new BABYLON.Color3(0.2, 0.6, 1)); } catch { }
         }
-        
+
         gameState.playerAlive = true;
     }
 
@@ -487,7 +487,7 @@ class Player extends Entity {
         const deltaX = gameState.cursorX - this.x;
         const deltaY = gameState.cursorY - this.y;
         const dist = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-        
+
         if (dist > 20) {
             this.x += (deltaX * 20) / dist;
             this.y += (deltaY * 20) / dist;
@@ -518,7 +518,7 @@ class Player extends Entity {
             if (gameState.leftButton) {
                 this.shootTime = 0;
                 this.charge -= 10;
-                
+
                 if (gameState.score >= 500) {
                     friendlyEntities.push(new Laser());
                     audioSystem.playLaser();
@@ -536,7 +536,7 @@ class Player extends Entity {
             this.shootTime = 0;
             audioSystem.playSpecial();
         }
-        
+
         if (gameState.rightButton && this.charge >= 150 && this.shootTime > 50) {
             this.pulse(0.3);
             this.charge -= 50;
@@ -548,12 +548,12 @@ class Player extends Entity {
         if (this.charge >= MAX_CHARGE && this.energy < MAX_HEALTH && temporizes(10)) {
             this.energy++;
         }
-        
+
         // Player engine flame
         if (engineFlamesEnabled && temporizes(2)) {
             debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2 - 4));
         }
-        
+
         gameState.playerHealth = this.energy;
         gameState.playerCharge = this.charge;
         gameState.playerX = this.x;
@@ -590,7 +590,7 @@ class Missile extends Entity {
         this.restoY = 0;
         this.releaseDebris = 4;
         this.friendly = friendly;
-        
+
         // Create mesh
         this.mesh = BABYLON.MeshBuilder.CreateSphere("missile", { diameter: 1 }, scene);
         const color = friendly ? new BABYLON.Color3(0, 0.6, 1) : new BABYLON.Color3(1, 0.2, 0);
@@ -603,7 +603,7 @@ class Missile extends Entity {
     update() {
         this.restoX += this.dirX;
         this.restoY += this.dirY;
-        
+
         while (this.restoX >= 100) {
             this.restoX -= 100;
             this.x += this.incX;
@@ -612,7 +612,7 @@ class Missile extends Entity {
             this.restoY -= 100;
             this.y += this.incY;
         }
-        
+
         if (this.isOffScreen()) this.destroy();
         this.updateMeshPosition();
     }
@@ -626,11 +626,11 @@ class Nuclear extends Missile {
         this.angle = angleDir(velX, velY);
         const sizes = [20, 18, 14, 10];
         this.width = this.height = sizes[level] || 10;
-        
+
         // Larger mesh for bigger nukes
         this.mesh.dispose();
         const size = 1 + level * 0.5;
-this.mesh = BABYLON.MeshBuilder.CreateSphere("nuclear", { diameter: size }, scene);
+        this.mesh = BABYLON.MeshBuilder.CreateSphere("nuclear", { diameter: size }, scene);
         this.mesh.material = createMaterial("nuclear", new BABYLON.Color3(1, 0, 0));
         this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
@@ -640,11 +640,11 @@ this.mesh = BABYLON.MeshBuilder.CreateSphere("nuclear", { diameter: size }, scen
 
     onDestroy() {
         if (this.level >= 3) return;
-        
+
         let newAngle = this.angle > Math.PI ? this.angle - Math.PI : this.angle + Math.PI;
         this.x += Math.cos(newAngle) * 10;
         this.y += Math.sin(newAngle) * 10;
-        
+
         for (let ang = newAngle - 1; ang < newAngle + 1; ang += 0.5) {
             friendlyEntities.push(new Nuclear(
                 this.x, this.y,
@@ -661,7 +661,7 @@ class Laser extends Entity {
         super(gameState.playerX, gameState.playerY - 10, 2, 50);
         this.energy = 2;
         this.releaseDebris = 4;
-        
+
         this.mesh = BABYLON.MeshBuilder.CreateBox("laser", { width: 1, height: 1, depth: 0.3 }, scene);
         this.mesh.material = createMaterial("laser", new BABYLON.Color3(0, 1, 1));
         this.mesh.renderingGroupId = 1;
@@ -717,12 +717,12 @@ class Enemy extends Entity {
         this.releaseDebris = 20;
         this.phase = Math.random() * Math.PI * 2;
         this.speed = 0.8 + Math.random() * 1.4;
-        
+
         // Create enemy mesh
         this.mesh = buildBasicEnemyMesh();
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
-        
+
         gameState.enemyPopulation++;
     }
 
@@ -757,9 +757,10 @@ class Enemy extends Entity {
                 this.y += Math.sin(ang) * 0.6 * this.speed;
                 // strafe sideways
                 this.x += Math.cos(ang + Math.PI / 2) * 0.8;
-                break; }
+                break;
+            }
         }
-        
+
         if (this.distance >= 0) {
             this.distance--;
         } else {
@@ -768,13 +769,13 @@ class Enemy extends Entity {
             this.phase = 0;
             this.speed = 0.8 + Math.random() * 1.6;
         }
-        
+
         // Boundary checks
         if (this.y - 20 < 20) { this.movement = 0; this.distance = 10; }
         if (this.y > SCREEN_HEIGHT / 2) { this.movement = 1; this.distance = 10; }
         if (this.x + 20 > SCREEN_WIDTH) { this.movement = 2; this.distance = 10; }
         if (this.x - 20 < 0) { this.movement = 3; this.distance = 10; }
-        
+
         // Shooting
         if (!this.shootTime) {
             this.shootTime = random(180) + 20;
@@ -783,10 +784,10 @@ class Enemy extends Entity {
         } else {
             this.shootTime--;
         }
-        
+
         // Occasional engine trail for enemies
         if (engineFlamesEnabled && temporizes(6)) debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2));
-        
+
         // Tilt to direction of travel
         const vx = this.x - oldX;
         const vy = this.y - oldY;
@@ -794,7 +795,7 @@ class Enemy extends Entity {
             this.mesh.rotation.z = BABYLON.Scalar.Lerp(this.mesh.rotation.z || 0, -vx * 0.04, 0.15);
             this.mesh.rotation.x = BABYLON.Scalar.Lerp(this.mesh.rotation.x || 0, vy * 0.03, 0.15);
         }
-        
+
         this.updateMeshPosition();
     }
 
@@ -812,7 +813,7 @@ class Meteor extends Entity {
         super(0, 0, 5, 5);
         this.energy = METEOR_HEALTH;
         this.releaseDebris = 5;
-        
+
         // Random entry point
         let angle;
         switch (random(4)) {
@@ -838,7 +839,7 @@ class Meteor extends Entity {
                 angle = between(225, 315);
                 break;
         }
-        
+
         angle *= Math.PI / 180;
         this.dirX = Math.floor(200 * Math.cos(angle));
         this.dirY = Math.floor(200 * Math.sin(angle));
@@ -848,7 +849,7 @@ class Meteor extends Entity {
         this.dirY = Math.abs(this.dirY);
         this.restoX = 0;
         this.restoY = 0;
-        
+
         this.mesh = buildMeteorMesh();
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
@@ -857,7 +858,7 @@ class Meteor extends Entity {
     update() {
         this.restoX += this.dirX;
         this.restoY += this.dirY;
-        
+
         while (this.restoX >= 100) {
             this.restoX -= 100;
             this.x += this.incX;
@@ -866,7 +867,7 @@ class Meteor extends Entity {
             this.restoY -= 100;
             this.y += this.incY;
         }
-        
+
         if (this.isOffScreen()) this.destroy();
         this.updateMeshPosition();
     }
@@ -887,8 +888,8 @@ class Guided extends Entity {
         this.velY = 0;
         this.time = 0;
         this.releaseDebris = 5;
-        
-this.mesh = BABYLON.MeshBuilder.CreateSphere("guided", { diameter: 1 }, scene);
+
+        this.mesh = BABYLON.MeshBuilder.CreateSphere("guided", { diameter: 1 }, scene);
         this.mesh.material = createMaterial("guided", new BABYLON.Color3(1, 0, 1));
         this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
@@ -900,15 +901,15 @@ this.mesh = BABYLON.MeshBuilder.CreateSphere("guided", { diameter: 1 }, scene);
         let deltaY = this.y - gameState.playerY;
         let dist = distance(this.x, this.y, gameState.playerX, gameState.playerY);
         if (!dist) dist = 1;
-        
+
         deltaX = deltaX / dist / 5;
         deltaY = deltaY / dist / 5;
         this.velX = (this.velX - deltaX) * 0.99;
         this.velY = (this.velY - deltaY) * 0.99;
-        
+
         this.x += this.velX;
         this.y += this.velY;
-        
+
         if (++this.time > 1000) this.destroy();
         this.updateMeshPosition();
     }
@@ -924,9 +925,9 @@ class Star extends Entity {
         super(random(SCREEN_WIDTH - 80) + 40, 40, 64, 48);
         this.energy = 100;
         this.releaseDebris = 500;
-        
+
         // Star shape
-this.mesh = BABYLON.MeshBuilder.CreateDisc("star", { radius: 1, tessellation: 5 }, scene);
+        this.mesh = BABYLON.MeshBuilder.CreateDisc("star", { radius: 1, tessellation: 5 }, scene);
         this.mesh.material = createMaterial("star", new BABYLON.Color3(1, 1, 0));
         this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
@@ -967,8 +968,8 @@ class Rain extends Entity {
         this.energy = 100;
         this.radius = 0;
         this.releaseDebris = 15;
-        
-this.mesh = BABYLON.MeshBuilder.CreateTorus("rain", { diameter: 1, thickness: 0.25, tessellation: 16 }, scene);
+
+        this.mesh = BABYLON.MeshBuilder.CreateTorus("rain", { diameter: 1, thickness: 0.25, tessellation: 16 }, scene);
         this.mesh.material = createMaterial("rain", new BABYLON.Color3(0, 1, 0));
         this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
@@ -983,14 +984,14 @@ this.mesh = BABYLON.MeshBuilder.CreateTorus("rain", { diameter: 1, thickness: 0.
                 this.radius = 0;
             }
         }
-        
+
         if (temporizes(100)) {
             for (let i = Math.PI / 4; i <= 3 * Math.PI / 4; i += 0.1) {
                 enemyEntities.push(new Missile(this.x, this.y, 2 * Math.cos(i), 2 * Math.sin(i), false));
             }
             if (this.y + 20 > SCREEN_HEIGHT) this.destroy();
         }
-        
+
         this.updateMeshPosition();
     }
 
@@ -998,7 +999,6 @@ this.mesh = BABYLON.MeshBuilder.CreateTorus("rain", { diameter: 1, thickness: 0.
         gameState.score += POINTS_CHUVA;
         audioSystem.playExplosionBig();
     }
-   }
 }
 
 // Metralha (shoots at player)
@@ -1011,7 +1011,7 @@ class Metralha extends Entity {
         super(x, y, 48, 48);
         this.energy = 10;
         this.releaseDebris = 100;
-        
+
         // Improved turret mesh
         this.mesh = buildTurretMesh();
         fitMeshToPixels(this.mesh, this.width, this.height);
@@ -1024,19 +1024,19 @@ class Metralha extends Entity {
             const dy = gameState.playerY - this.y;
             let dist = Math.sqrt(dx * dx + dy * dy);
             if (!dist) dist = 1;
-            
+
             enemyEntities.push(new Missile(
                 this.x, this.y,
                 (dx * 5) / dist, (dy * 5) / dist,
                 false
             ));
         }
-        
+
         if (temporizes(10)) {
             this.y++;
             if (this.isOffScreen()) this.destroy();
         }
-        
+
         this.updateMeshPosition();
     }
 
@@ -1053,7 +1053,7 @@ class Transport extends Entity {
         super(0, random(SCREEN_HEIGHT / 2 - 40) + 40, 100, 20);
         this.energy = 500;
         this.releaseDebris = 40;
-        
+
         this.mesh = buildTransportMesh(new BABYLON.Color3(0.4, 0.3, 0.3));
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
@@ -1072,7 +1072,6 @@ class Transport extends Entity {
         audioSystem.playExplosionBig();
         triggerShake(3.0, 20);
     }
-    }
 }
 
 // Encrenca (spawns Rain)
@@ -1081,7 +1080,7 @@ class Encrenca extends Entity {
         super(0, random(SCREEN_HEIGHT / 2 - 40) + 40, 100, 20);
         this.energy = 500;
         this.releaseDebris = 200;
-        
+
         this.mesh = buildTransportMesh(new BABYLON.Color3(0.3, 0.3, 0.3));
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
@@ -1141,7 +1140,7 @@ function spawnEnemies() {
             enemyEntities.push(new Metralha());
         }
     }
-    
+
     if (possib(100, 30)) {
         if (gameState.score >= 500) {
             if (gameState.score >= 5000) {
@@ -1153,17 +1152,17 @@ function spawnEnemies() {
             enemyEntities.push(new Star());
         }
     }
-    
+
     if (possib(200, 30)) {
         for (let j = 0; j < 50; j++) {
             enemyEntities.push(new Meteor());
         }
     }
-    
+
     if (possib(300, 30)) {
         enemyEntities.push(new Star());
     }
-    
+
     if (gameState.enemyPopulation < 25 && possib(400, 30)) {
         for (let i = 0; i < 3; i++) {
             enemyEntities.push(new Enemy());
@@ -1189,7 +1188,7 @@ function cleanupEntities() {
 // Main game loop
 function gameLoop() {
     if (gameState.gameOver) return;
-    
+
     // Background scroll
     if (starfield) starfield.update();
 
@@ -1201,23 +1200,23 @@ function gameLoop() {
     } else {
         camera.position.x = 0; camera.position.y = 0;
     }
-    
+
     // Update all entities
     friendlyEntities.forEach(e => e.update());
     enemyEntities.forEach(e => e.update());
     debrisEntities.forEach(e => e.update());
-    
+
     // Collision detection
     distributeHits(friendlyEntities, enemyEntities);
-    
+
     // Spawn enemies
     if (gameState.playerAlive) {
         spawnEnemies();
     }
-    
+
     // Cleanup
     cleanupEntities();
-    
+
     // Update HUD
     updateHUD();
 
@@ -1229,7 +1228,7 @@ function gameLoop() {
             document.getElementById('game-over').classList.add('visible');
         }
     }
-    
+
     gameState.numFrame++;
 }
 
@@ -1239,7 +1238,7 @@ function createScene() {
     engine = new BABYLON.Engine(canvas, true);
     scene = new BABYLON.Scene(engine);
     scene.clearColor = new BABYLON.Color3(0, 0, 0);
-    
+
     // Orthographic camera for 2D gameplay
     camera = new BABYLON.FreeCamera("camera", new BABYLON.Vector3(0, 0, -50), scene);
     camera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
@@ -1247,14 +1246,14 @@ function createScene() {
     camera.orthoRight = SCREEN_WIDTH / 2;
     camera.orthoTop = SCREEN_HEIGHT / 2;
     camera.orthoBottom = -SCREEN_HEIGHT / 2;
-    
+
     // Simple ambient setup
     const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
     light.intensity = 0.6;
 
     // Environment for PBR metals
     ensureEnvironment();
-    
+
     // Post FX: glow + bloom + FXAA + vignette
     try {
         glowLayer = new BABYLON.GlowLayer("glow", scene, { blurKernelSize: 48 });
@@ -1275,8 +1274,8 @@ function createScene() {
         renderingPipeline.imageProcessing.vignetteEnabled = true;
         renderingPipeline.imageProcessing.vignetteColor = new BABYLON.Color4(0, 0, 0, 1);
         renderingPipeline.imageProcessing.vignetteWeight = 0.9;
-    } catch {}
-    
+    } catch { }
+
     // Initialize pooled debris
     initDebrisPool();
 
@@ -1285,7 +1284,7 @@ function createScene() {
 
     // Create initial player
     friendlyEntities.push(new Player());
-    
+
     // Input handling (mouse + pointer)
     const updateCursor = (clientX, clientY) => {
         const rect = canvas.getBoundingClientRect();
@@ -1305,7 +1304,7 @@ function createScene() {
         updateCursor(e.clientX, e.clientY);
         if (e.button === 0) gameState.leftButton = true;
         if (e.button === 2) gameState.rightButton = true;
-        try { canvas.setPointerCapture(e.pointerId); } catch {}
+        try { canvas.setPointerCapture(e.pointerId); } catch { }
         e.preventDefault();
     }, { passive: false });
 
@@ -1317,7 +1316,7 @@ function createScene() {
     canvas.addEventListener('pointerup', (e) => {
         if (e.button === 0) gameState.leftButton = false;
         if (e.button === 2) gameState.rightButton = false;
-        try { canvas.releasePointerCapture(e.pointerId); } catch {}
+        try { canvas.releasePointerCapture(e.pointerId); } catch { }
         e.preventDefault();
     }, { passive: false });
 
@@ -1342,7 +1341,7 @@ function createScene() {
     }, { passive: false });
 
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-    
+
     // Touch support
     canvas.addEventListener('touchstart', (e) => {
         audioSystem.init();
@@ -1356,7 +1355,7 @@ function createScene() {
         }
         e.preventDefault();
     }, { passive: false });
-    
+
     canvas.addEventListener('touchmove', (e) => {
         if (e.touches.length > 0) {
             const rect = canvas.getBoundingClientRect();
@@ -1367,19 +1366,19 @@ function createScene() {
         }
         e.preventDefault();
     }, { passive: false });
-    
+
     canvas.addEventListener('touchend', () => {
         gameState.leftButton = false;
         gameState.rightButton = false;
     });
-    
+
     // Game over restart
     document.addEventListener('click', () => {
         if (gameState.gameOver) {
             location.reload();
         }
     });
-    
+
     // Run game loop
     scene.registerBeforeRender(gameLoop);
 
@@ -1389,12 +1388,12 @@ function createScene() {
         if (e.code === 'KeyB' && renderingPipeline) renderingPipeline.bloomEnabled = !renderingPipeline.bloomEnabled;
         if (e.code === 'KeyF') engineFlamesEnabled = !engineFlamesEnabled;
     });
-    
+
     // Render loop
     engine.runRenderLoop(() => {
         scene.render();
     });
-    
+
     // Resize handling
     window.addEventListener('resize', () => {
         engine.resize();
@@ -1426,7 +1425,7 @@ class Starfield {
             inst.renderingGroupId = 0;
             inst.position.x = Math.random() * SCREEN_WIDTH - SCREEN_WIDTH / 2;
             inst.position.y = Math.random() * SCREEN_HEIGHT - SCREEN_HEIGHT / 2;
-inst.scaling.x = inst.scaling.y = 0.2 + Math.random() * 0.6; // smaller stars
+            inst.scaling.x = inst.scaling.y = 0.2 + Math.random() * 0.6; // smaller stars
             // Slight color variation (blue/cool white)
             const c = (i % 6 === 0)
                 ? new BABYLON.Color3(0.6, 0.7, 1)
