@@ -329,6 +329,8 @@ class Entity {
         this.alive = true;
         this.energy = 1;
         this.releaseDebris = 0;
+        this.prevX = x;
+        this.prevY = y;
     }
 
     posX() { return this.x - this.width / 2; }
@@ -476,6 +478,18 @@ class Player extends Entity {
             this.y = gameState.cursorY;
             this.keepOnScreen();
         }
+
+        // Tilt the ship based on motion (bank and a touch of pitch)
+        const vx = this.x - this.prevX;
+        const vy = this.y - this.prevY;
+        if (this.mesh) {
+            const targetBank = -vx * 0.03; // left/right
+            const targetPitch = vy * 0.02; // up/down
+            this.mesh.rotation.z = BABYLON.Scalar.Lerp(this.mesh.rotation.z || 0, targetBank, 0.2);
+            this.mesh.rotation.x = BABYLON.Scalar.Lerp(this.mesh.rotation.x || 0, targetPitch, 0.2);
+        }
+        this.prevX = this.x;
+        this.prevY = this.y;
 
         if (this.charge < MAX_CHARGE) this.charge = Math.min(MAX_CHARGE, this.charge + CHARGE_REFILL_PER_FRAME);
         if (this.shootTime < 1000) this.shootTime++;
@@ -644,12 +658,14 @@ class Enemy extends Entity {
     constructor() {
         super(random(SCREEN_WIDTH - 60) + 30, 30, 20, 20);
         this.energy = ENEMY_HEALTH;
-        this.movement = random(4); // 0=down, 1=up, 2=left, 3=right
+        this.movement = random(8); // expanded patterns
         this.distance = random(50);
         this.shootTime = random(100) + 20;
         this.releaseDebris = 20;
+        this.phase = Math.random() * Math.PI * 2;
+        this.speed = 0.8 + Math.random() * 1.4;
         
-        // Create improved enemy mesh
+        // Create enemy mesh
         this.mesh = buildBasicEnemyMesh();
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
@@ -659,18 +675,45 @@ class Enemy extends Entity {
 
     update() {
         // Movement
+        const oldX = this.x, oldY = this.y;
         switch (this.movement) {
-            case 0: this.y++; break;
-            case 1: this.y--; break;
-            case 2: this.x--; break;
-            case 3: this.x++; break;
+            case 0: this.y += this.speed; break; // down
+            case 1: this.y -= this.speed; break; // up
+            case 2: this.x -= this.speed; break; // left
+            case 3: this.x += this.speed; break; // right
+            case 4: // sine horizontal drift
+                this.y += 0.7 * this.speed;
+                this.phase += 0.1;
+                this.x += Math.sin(this.phase) * 1.5;
+                break;
+            case 5: // sine vertical drift
+                this.x += 0.7 * this.speed;
+                this.phase += 0.1;
+                this.y += Math.sin(this.phase) * 1.5;
+                break;
+            case 6: // zigzag downward
+                this.y += 1.2 * this.speed;
+                this.phase += 0.25;
+                this.x += Math.sin(this.phase) * 2.6;
+                break;
+            case 7: { // light homing/strafe
+                const dx = gameState.playerX - this.x;
+                const dy = gameState.playerY - this.y;
+                const ang = Math.atan2(dy, dx);
+                this.x += Math.cos(ang) * 0.6 * this.speed;
+                this.y += Math.sin(ang) * 0.6 * this.speed;
+                // strafe sideways
+                this.x += Math.cos(ang + Math.PI / 2) * 0.8;
+                break; }
         }
         
         if (this.distance >= 0) {
             this.distance--;
         } else {
-            this.distance = random(50);
-            this.movement = random(5);
+            this.distance = random(50) + 20;
+            this.movement = random(8);
+            this.phase = 0;
+            this.speed = 0.8 + Math.random() * 1.6;
         }
         
         // Boundary checks
@@ -686,6 +729,14 @@ class Enemy extends Entity {
             enemyEntities.push(new Missile(this.x + 9, this.y + 20, 0, 3, false));
         } else {
             this.shootTime--;
+        }
+        
+        // Tilt to direction of travel
+        const vx = this.x - oldX;
+        const vy = this.y - oldY;
+        if (this.mesh) {
+            this.mesh.rotation.z = BABYLON.Scalar.Lerp(this.mesh.rotation.z || 0, -vx * 0.04, 0.15);
+            this.mesh.rotation.x = BABYLON.Scalar.Lerp(this.mesh.rotation.x || 0, vy * 0.03, 0.15);
         }
         
         this.updateMeshPosition();
