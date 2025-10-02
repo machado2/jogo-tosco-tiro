@@ -37,23 +37,5 @@ Simply open `index.html` in your web browser. No installation required!
 - **Vanilla JavaScript**: No framework dependencies
 - **HTML5 Canvas**: Cross-browser compatible
 
-## Original Version
 
-### Gameplay video on youtube
-
-[![youtube video](http://img.youtube.com/vi/CnxdW3qrZFM/0.jpg)](http://www.youtube.com/watch?v=CnxdW3qrZFM "Gameplay video")
-
-### Screenshot
-
-![screenshot](screenshot.png)
-
-## Development
-
-The original C++ source code has been preserved in this repository for historical reference.
-
-Converted from C++/SDL2 to JavaScript/Babylon.js while maintaining the original game logic and feel.
-
-## License
-
-Free to use and modify.
 
