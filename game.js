@@ -92,20 +92,28 @@ function distributeHits(list1, list2) {
 }
 
 // Enemy spawning
+let lastSpawnFrame = 0;
 function possib(offset, prob) {
-    return ((gameState.numFrame + offset) % 500 === 0) && (random(100) < prob);
+    // Diminui o período para ~3s e mantém aleatoriedade
+    return ((gameState.numFrame + offset) % 180 === 0) && (random(100) < prob);
 }
+function markSpawn() { lastSpawnFrame = gameState.numFrame; }
 
 function spawnEnemies() {
-    if (possib(0, 30)) {
+    // Aguarda assets das naves carregarem para evitar erros de construção
+    if (!(typeof window !== 'undefined' && window.assetsReady === true)) {
+        return;
+    }
+    if (possib(0, 35)) {
         if (gameState.score >= 500) {
             enemyEntities.push(new Transport());
         } else {
             enemyEntities.push(new Metralha());
         }
+        markSpawn();
     }
 
-    if (possib(100, 30)) {
+    if (possib(100, 35)) {
         if (gameState.score >= 500) {
             if (gameState.score >= 5000) {
                 enemyEntities.push(new Encrenca());
@@ -115,22 +123,32 @@ function spawnEnemies() {
         } else {
             enemyEntities.push(new Star());
         }
+        markSpawn();
     }
 
-    if (possib(200, 30)) {
+    if (possib(200, 35)) {
         for (let j = 0; j < 50; j++) {
             enemyEntities.push(new Meteor());
         }
+        markSpawn();
     }
 
-    if (possib(300, 30)) {
+    if (possib(300, 35)) {
         enemyEntities.push(new Star());
+        markSpawn();
     }
 
-    if (gameState.enemyPopulation < 25 && possib(400, 30)) {
+    if (gameState.enemyPopulation < 25 && possib(400, 40)) {
         for (let i = 0; i < 3; i++) {
             enemyEntities.push(new Enemy());
         }
+        markSpawn();
+    }
+
+    // Fallback: garante pelo menos 1 inimigo a cada ~3s
+    if (gameState.numFrame - lastSpawnFrame > 180) {
+        enemyEntities.push(new Enemy());
+        markSpawn();
     }
 }
 
@@ -373,43 +391,79 @@ window.addEventListener('DOMContentLoaded', createScene);
 // Starfield moved to starfield.js
 
 function loadSpaceshipAssets(onReady) {
-    // Load two OBJ ships: one for player, one for enemy. Fall back gracefully on errors.
-    let pending = 2;
-    const checkDone = () => { pending--; if (pending <= 0) { try { onReady && onReady(); } catch {} } };
+    // Carregar naves do jogador e inimigo usando ShipConfig; sem fallbacks silenciosos
+    let pending = 2 + (ShipConfig.enemyVariants ? ShipConfig.enemyVariants.length : 0);
+    let failed = false;
+    const checkDone = () => {
+        pending--;
+        if (pending <= 0) {
+            if (failed) {
+                throw new Error("Falha ao carregar uma ou mais naves. Verifique ShipConfig e caminhos dos assets.");
+            }
+            // Marca assets como prontos antes de acionar onReady
+            if (typeof window !== 'undefined') window.assetsReady = true;
+            if (onReady) onReady();
+        }
+    };
 
-    try {
-        BABYLON.SceneLoader.ImportMesh("", "assets/ultimate_spaceships/Striker/OBJ/", "Striker.obj", scene,
-            (meshes) => {
-                try {
-                    window.spaceshipMeshes = window.spaceshipMeshes || {};
-                    const root = new BABYLON.TransformNode("playerBase", scene);
-                    meshes.forEach(m => { try { m.parent = root; m.renderingGroupId = 1; } catch {} });
-                    // Keep base orientation; per-instance rotation will be applied when building meshes
-                    root.setEnabled(false);
-                    window.spaceshipMeshes.player = root;
-                } catch {}
-                checkDone();
-            },
-            undefined,
-            (scene, message, exception) => { console.warn("Failed to load player ship:", message); checkDone(); }
-        );
-    } catch { checkDone(); }
+    // Reset e preparar estrutura de variantes
+    window.spaceshipMeshes = window.spaceshipMeshes || {};
+    window.spaceshipMeshes.enemyVariants = [];
 
-    try {
-        BABYLON.SceneLoader.ImportMesh("", "assets/ultimate_spaceships/Insurgent/OBJ/", "Insurgent.obj", scene,
-            (meshes) => {
-                try {
-                    window.spaceshipMeshes = window.spaceshipMeshes || {};
-                    const root = new BABYLON.TransformNode("enemyBase", scene);
-                    meshes.forEach(m => { try { m.parent = root; m.renderingGroupId = 1; } catch {} });
-                    // Keep base orientation; per-instance rotation will be applied when building meshes
-                    root.setEnabled(false);
-                    window.spaceshipMeshes.enemy = root;
-                } catch {}
-                checkDone();
-            },
-            undefined,
-            (scene, message, exception) => { console.warn("Failed to load enemy ship:", message); checkDone(); }
-        );
-    } catch { checkDone(); }
+    BABYLON.SceneLoader.ImportMesh("", ShipConfig.player.rootUrl, ShipConfig.player.fileName, scene,
+        (meshes) => {
+            window.spaceshipMeshes = window.spaceshipMeshes || {};
+            const root = new BABYLON.TransformNode("playerBase", scene);
+            meshes.forEach(m => { m.parent = root; m.renderingGroupId = 1; });
+            root.setEnabled(false);
+            window.spaceshipMeshes.player = root;
+            checkDone();
+        },
+        undefined,
+        (scene, message, exception) => {
+            console.error("Erro ao carregar nave do jogador:", message, exception);
+            failed = true; checkDone();
+        }
+    );
+
+    BABYLON.SceneLoader.ImportMesh("", ShipConfig.enemy.rootUrl, ShipConfig.enemy.fileName, scene,
+        (meshes) => {
+            window.spaceshipMeshes = window.spaceshipMeshes || {};
+            const root = new BABYLON.TransformNode("enemyBase", scene);
+            meshes.forEach(m => { m.parent = root; m.renderingGroupId = 1; });
+            root.setEnabled(false);
+            window.spaceshipMeshes.enemy = root;
+            checkDone();
+        },
+        undefined,
+        (scene, message, exception) => {
+            console.error("Erro ao carregar nave inimiga:", message, exception);
+            failed = true; checkDone();
+        }
+    );
+
+    // Importar todas as variantes de inimigos para seleção aleatória
+    if (ShipConfig.enemyVariants && ShipConfig.enemyVariants.length) {
+        ShipConfig.enemyVariants.forEach((cfg) => {
+            BABYLON.SceneLoader.ImportMesh("", cfg.rootUrl, cfg.fileName, scene,
+                (meshes) => {
+                    try {
+                        const root = new BABYLON.TransformNode((cfg.name || cfg.fileName) + "_base", scene);
+                        meshes.forEach(m => { m.parent = root; m.renderingGroupId = 1; });
+                        root.setEnabled(false);
+                        window.spaceshipMeshes.enemyVariants.push({ name: cfg.name || cfg.fileName, root, config: cfg });
+                    } catch (e) {
+                        console.error("Falha ao preparar variante inimiga:", cfg.name || cfg.fileName, e);
+                    }
+                    checkDone();
+                },
+                undefined,
+                (scene, message, exception) => {
+                    console.warn("Variante inimiga não carregada:", cfg.name || cfg.fileName, message, exception);
+                    // Não marcar como failed para variantes individuais; continuar jogo
+                    checkDone();
+                }
+            );
+        });
+    }
 }

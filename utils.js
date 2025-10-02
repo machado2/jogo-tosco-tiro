@@ -37,15 +37,31 @@ function triggerShake(intensity = 2, frames = 10) {
 function flashMesh(mesh, color = new BABYLON.Color3(1, 1, 1), durationMs = 80) {
   if (!mesh || typeof highlightLayer === 'undefined' || !highlightLayer) return;
   try {
-    // If a group (TransformNode), apply highlight to child meshes
+    const applyFlash = (m) => { try { highlightLayer.addMesh(m, color); } catch {} };
+    const restoreOrRemove = (m) => {
+      try {
+        const persist = m && m.metadata && m.metadata.persistHL;
+        const defColor = (m && m.metadata && m.metadata.defaultHLColor) ? m.metadata.defaultHLColor : null;
+        if (persist && defColor) {
+          // Restaura a cor padrão do brilho em vez de remover
+          highlightLayer.addMesh(m, defColor);
+        } else {
+          // Remove highlight temporário
+          highlightLayer.removeMesh(m);
+        }
+      } catch {}
+    };
+
+    // Grupo (TransformNode): aplica a todos os filhos Mesh
     if (mesh.getChildren && !(mesh instanceof BABYLON.AbstractMesh)) {
       const children = mesh.getChildren().filter(c => c instanceof BABYLON.Mesh);
-      children.forEach(m => { try { highlightLayer.addMesh(m, color); } catch {} });
-      setTimeout(() => { children.forEach(m => { try { highlightLayer.removeMesh(m); } catch {} }); }, durationMs);
+      children.forEach(applyFlash);
+      setTimeout(() => { children.forEach(restoreOrRemove); }, durationMs);
       return;
     }
-    // Single mesh
-    highlightLayer.addMesh(mesh, color);
-    setTimeout(() => { try { highlightLayer.removeMesh(mesh); } catch {} }, durationMs);
+
+    // Mesh único
+    applyFlash(mesh);
+    setTimeout(() => { restoreOrRemove(mesh); }, durationMs);
   } catch {}
 }

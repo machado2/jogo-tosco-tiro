@@ -3,6 +3,42 @@
 // Material cache
 let materials = {};
 
+// Configuração de naves (você pode alterar tamanhos, caminhos e texturas)
+const ShipConfig = {
+  player: {
+    rootUrl: "assets/ultimate_spaceships/Striker/OBJ/",
+    fileName: "Striker.obj",
+    textureUrl: "assets/ultimate_spaceships/Striker/Textures/Striker_Blue.png",
+    width: 16,
+    height: 16,
+    rotationX: Math.PI / 2,
+    rotationZ: 0
+  },
+  enemy: {
+    rootUrl: "assets/ultimate_spaceships/Insurgent/OBJ/",
+    fileName: "Insurgent.obj",
+    textureUrl: "assets/ultimate_spaceships/Insurgent/Textures/Insurgent_Red.png",
+    width: 16,
+    height: 16,
+    rotationX: Math.PI / 2,
+    rotationZ: Math.PI
+  },
+  // Variantes de inimigos disponíveis (usar OBJ locais)
+  enemyVariants: [
+    { name: "Bob", rootUrl: "assets/ultimate_spaceships/Bob/OBJ/", fileName: "Bob.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
+    { name: "Challenger", rootUrl: "assets/ultimate_spaceships/Challenger/OBJ/", fileName: "Challenger.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
+    { name: "Dispatcher", rootUrl: "assets/ultimate_spaceships/Dispatcher/OBJ/", fileName: "Dispatcher.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
+    { name: "Executioner", rootUrl: "assets/ultimate_spaceships/Executioner/OBJ/", fileName: "Executioner.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
+    { name: "Imperial", rootUrl: "assets/ultimate_spaceships/Imperial/OBJ/", fileName: "Imperial.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
+    { name: "Insurgent", rootUrl: "assets/ultimate_spaceships/Insurgent/OBJ/", fileName: "Insurgent.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
+    { name: "Omen", rootUrl: "assets/ultimate_spaceships/Omen/OBJ/", fileName: "Omen.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
+    { name: "Pancake", rootUrl: "assets/ultimate_spaceships/Pancake/OBJ/", fileName: "Pancake.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
+    { name: "Spitfire", rootUrl: "assets/ultimate_spaceships/Spitfire/OBJ/", fileName: "Spitfire.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
+    { name: "Striker", rootUrl: "assets/ultimate_spaceships/Striker/OBJ/", fileName: "Striker.obj", rotationX: Math.PI / 2, rotationZ: Math.PI },
+    { name: "Zenith", rootUrl: "assets/ultimate_spaceships/Zenith/OBJ/", fileName: "Zenith.obj", rotationX: Math.PI / 2, rotationZ: Math.PI }
+  ]
+};
+
 function createMaterial(name, color) {
   if (materials[name]) return materials[name];
   const mat = new BABYLON.StandardMaterial(name, scene);
@@ -37,6 +73,22 @@ function ensureEnvironment() {
 function registerGlowMesh(mesh) {
   if (glowLayer && glowLayer.addIncludedOnlyMesh) {
     try { glowLayer.addIncludedOnlyMesh(mesh); } catch {}
+  }
+}
+
+// Tenta aplicar uma textura única a todos os meshes de um grupo
+function applyShipTextureToGroup(groupNode, textureUrl) {
+  if (!groupNode || !textureUrl) return;
+  try {
+    const tex = new BABYLON.Texture(textureUrl, scene, true, false, BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
+    const mat = new BABYLON.StandardMaterial("shipTexMat_" + (groupNode.name || "root"), scene);
+    mat.diffuseTexture = tex;
+    mat.specularColor = new BABYLON.Color3(0, 0, 0);
+    mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+    const parts = groupNode.getChildren ? groupNode.getChildren().filter(c => c instanceof BABYLON.Mesh) : [];
+    parts.forEach(p => { try { p.material = mat; } catch {} });
+  } catch (e) {
+    console.error("Falha ao aplicar textura na nave:", e);
   }
 }
 
@@ -111,78 +163,51 @@ function fitMeshToPixels(mesh, targetWidth, targetHeight) {
 }
 
 function buildPlayerShipMesh() {
-  // Prefer imported asset if available
-  if (typeof spaceshipMeshes !== 'undefined' && spaceshipMeshes && spaceshipMeshes.player) {
-    const root = new BABYLON.TransformNode("playerShipRoot", scene);
-    const base = spaceshipMeshes.player;
-    const parts = base.getChildren().filter(c => c instanceof BABYLON.Mesh);
-    parts.forEach(p => {
-      try { const clone = p.clone(p.name + "_player"); clone.parent = root; clone.renderingGroupId = 1; } catch {}
-    });
-    // Orientação top-down: queremos ver a “tampa” da nave (topo) e deslocar pra cima
-    // Para muitos modelos que apontam no eixo +Z (frente), rotacionar 90° em X coloca o topo voltado para a câmera ortográfica
-    // Em scroller vertical, o movimento Y deve sugerir ir “para cima”, então mantemos uma leve rotação Z adversa em updates (já aplicada nos Entities)
-    root.rotation.x = Math.PI / 2;
-    // Para reforçar sensação de top-down, inclinar levemente o nariz para “cima” no plano
-    root.rotation.z = 0; // neutro; ajustes dinâmicos são feitos no update do Player
-    // Add engine glow as billboarded plane
-    const engine = BABYLON.MeshBuilder.CreatePlane("engineGlow", { size: 0.7 }, scene);
-    engine.billboardMode = BABYLON.AbstractMesh.BILLBOARDMODE_ALL; engine.position.y = -1.25; engine.position.z = -0.1;
-    const engineMat = createMaterial("engineGlowMat", new BABYLON.Color3(1.0, 0.5, 0.1)); engine.material = engineMat;
-    engine.parent = root; engine.renderingGroupId = 1; registerGlowMesh(engine);
-    return root;
+  // Exigir asset importado (sem fallback escondendo erros)
+  if (!(typeof spaceshipMeshes !== 'undefined' && spaceshipMeshes && spaceshipMeshes.player)) {
+    throw new Error("Mesh da nave do jogador não carregada. Verifique ShipConfig.player.rootUrl/fileName.");
   }
-  // Fallback to procedural mesh
-  const bodyColor = new BABYLON.Color3(0.18, 0.55, 1);
-  const panelTex = createPanelTexture("playerPanelTex", bodyColor);
-  const hullMat = createPBRMetalMaterial("playerHull", bodyColor, panelTex, 0.05);
-  const profile = [new BABYLON.Vector3(0.00, 1.20, 0), new BABYLON.Vector3(0.45, 0.90, 0), new BABYLON.Vector3(0.60, 0.30, 0),
-                   new BABYLON.Vector3(0.38, -0.40, 0), new BABYLON.Vector3(0.20, -0.95, 0), new BABYLON.Vector3(0.00, -1.30, 0)];
-  const fuselage = BABYLON.MeshBuilder.CreateLathe("playerFuselage", { shape: profile, sideOrientation: BABYLON.Mesh.DOUBLESIDE, tessellation: 24 }, scene);
-  fuselage.material = hullMat;
-  const wingL = BABYLON.MeshBuilder.CreateBox("wingL", { width: 2.4, height: 0.12, depth: 0.7 }, scene);
-  wingL.position.x = -1.0; wingL.position.y = 0.1; wingL.rotation.z = 0.12; wingL.material = hullMat;
-  const wingR = wingL.clone("wingR"); wingR.position.x = 1.0; wingR.rotation.z = -0.12;
-  const fin = BABYLON.MeshBuilder.CreateBox("fin", { width: 0.25, height: 0.9, depth: 0.4 }, scene);
-  fin.position.y = -0.5; fin.material = hullMat;
-  const glass = new BABYLON.PBRMaterial("cockpitGlass", scene); ensureEnvironment();
-  glass.metallic = 0.0; glass.roughness = 0.05; glass.alpha = 0.8; glass.albedoColor = new BABYLON.Color3(0.5, 0.8, 1);
-  const canopy = BABYLON.MeshBuilder.CreateSphere("canopy", { diameter: 0.7 }, scene);
-  canopy.position.y = 0.25; canopy.position.z = 0.25; canopy.material = glass;
+  const root = new BABYLON.TransformNode("playerShipRoot", scene);
+  const base = spaceshipMeshes.player;
+  const parts = base.getChildren().filter(c => c instanceof BABYLON.Mesh);
+  parts.forEach(p => {
+    try { const clone = p.clone(p.name + "_player"); clone.parent = root; clone.renderingGroupId = 1; } catch {}
+  });
+  // Orientação top-down controlada por configuração
+  root.rotation.x = ShipConfig.player.rotationX;
+  root.rotation.z = ShipConfig.player.rotationZ;
+  // Textura
+  applyShipTextureToGroup(root, ShipConfig.player.textureUrl);
+  // Engine glow opcional
   const engine = BABYLON.MeshBuilder.CreatePlane("engineGlow", { size: 0.7 }, scene);
   engine.billboardMode = BABYLON.AbstractMesh.BILLBOARDMODE_ALL; engine.position.y = -1.25; engine.position.z = -0.1;
   const engineMat = createMaterial("engineGlowMat", new BABYLON.Color3(1.0, 0.5, 0.1)); engine.material = engineMat;
-  const merged = BABYLON.Mesh.MergeMeshes([fuselage, wingL, wingR, fin, canopy], true, true, undefined, false, true);
-  merged.renderingGroupId = 1; engine.parent = merged; engine.renderingGroupId = 1; registerGlowMesh(engine);
-  return merged;
+  engine.parent = root; engine.renderingGroupId = 1; registerGlowMesh(engine);
+  return root;
 }
 
 function buildBasicEnemyMesh() {
-  // Prefer imported asset if available
-  if (typeof spaceshipMeshes !== 'undefined' && spaceshipMeshes && spaceshipMeshes.enemy) {
-    const root = new BABYLON.TransformNode("enemyShipRoot", scene);
-    const base = spaceshipMeshes.enemy;
-    const parts = base.getChildren().filter(c => c instanceof BABYLON.Mesh);
-    parts.forEach(p => {
-      try { const clone = p.clone(p.name + "_enemy"); clone.parent = root; clone.renderingGroupId = 1; } catch {}
-    });
-    // Orientação top-down
-    root.rotation.x = Math.PI / 2;
-    root.rotation.z = Math.PI; // apontar o "nariz" para baixo na tela
-    return root;
+  // Preferir variantes carregadas; caso não existam, usar base "enemy"
+  const variants = (typeof window !== 'undefined' && window.spaceshipMeshes && Array.isArray(window.spaceshipMeshes.enemyVariants)) ? window.spaceshipMeshes.enemyVariants : [];
+  const chosen = variants.length ? variants[Math.floor(Math.random() * variants.length)] : null;
+  // Exigir asset importado (sem fallback silencioso)
+  if (!chosen && !(typeof spaceshipMeshes !== 'undefined' && spaceshipMeshes && spaceshipMeshes.enemy)) {
+    throw new Error("Mesh da nave inimiga não carregada. Verifique ShipConfig.enemy.rootUrl/fileName.");
   }
-  // Fallback to procedural enemy
-  const bodyColor = new BABYLON.Color3(0.6, 0.6, 0.65);
-  const tex = createPanelTexture("enemyPanelTex", bodyColor);
-  const mat = createPBRMetalMaterial("enemyHull", bodyColor, tex, 0.03);
-  const body = BABYLON.MeshBuilder.CreatePolyhedron("enemyBody", { type: 2, size: 1.0 }, scene);
-  body.material = mat;
-  const armL = BABYLON.MeshBuilder.CreateBox("armL", { width: 1.6, height: 0.12, depth: 0.4 }, scene);
-  armL.position.x = -1.1; armL.material = mat; const armR = armL.clone("armR"); armR.position.x = 1.1;
-  const spike = BABYLON.MeshBuilder.CreateCylinder("spike", { height: 0.8, diameterTop: 0.0, diameterBottom: 0.35 }, scene);
-  spike.position.y = -0.9; spike.material = mat;
-  const merged = BABYLON.Mesh.MergeMeshes([body, armL, armR, spike], true, true, undefined, false, true);
-  merged.renderingGroupId = 1; return merged;
+  const root = new BABYLON.TransformNode("enemyShipRoot", scene);
+  const base = chosen ? chosen.root : spaceshipMeshes.enemy;
+  const config = chosen ? chosen.config : ShipConfig.enemy;
+  const parts = base.getChildren().filter(c => c instanceof BABYLON.Mesh);
+  parts.forEach(p => {
+    try { const clone = p.clone(p.name + "_enemy"); clone.parent = root; clone.renderingGroupId = 1; } catch {}
+  });
+  // Orientação top-down controlada por configuração
+  root.rotation.x = (config && typeof config.rotationX === 'number') ? config.rotationX : ShipConfig.enemy.rotationX;
+  root.rotation.z = (config && typeof config.rotationZ === 'number') ? config.rotationZ : ShipConfig.enemy.rotationZ;
+  // Textura (se disponível na config da variante)
+  const texUrl = (config && config.textureUrl) ? config.textureUrl : ShipConfig.enemy.textureUrl;
+  applyShipTextureToGroup(root, texUrl);
+  return root;
 }
 
 function buildTurretMesh() {

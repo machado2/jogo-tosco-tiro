@@ -72,6 +72,35 @@ class Entity {
         if (this.mesh) {
             this.mesh.position.x = this.x - SCREEN_WIDTH / 2;
             this.mesh.position.y = -(this.y - SCREEN_HEIGHT / 2);
+            // Sincroniza hitbox com bounding box do mesh para refletir mudanças de escala/tamanho
+            try {
+                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                if (typeof this.mesh.getBoundingInfo === 'function') {
+                    try { this.mesh.refreshBoundingInfo && this.mesh.refreshBoundingInfo(true); } catch {}
+                    const bb = this.mesh.getBoundingInfo().boundingBox;
+                    minX = Math.min(minX, bb.minimumWorld.x);
+                    maxX = Math.max(maxX, bb.maximumWorld.x);
+                    minY = Math.min(minY, bb.minimumWorld.y);
+                    maxY = Math.max(maxY, bb.maximumWorld.y);
+                }
+                if (this.mesh.getChildren) {
+                    const children = this.mesh.getChildren().filter(c => c && typeof c.getBoundingInfo === 'function');
+                    children.forEach(ch => {
+                        try { ch.refreshBoundingInfo && ch.refreshBoundingInfo(true); } catch {}
+                        const bb = ch.getBoundingInfo().boundingBox;
+                        minX = Math.min(minX, bb.minimumWorld.x);
+                        maxX = Math.max(maxX, bb.maximumWorld.x);
+                        minY = Math.min(minY, bb.minimumWorld.y);
+                        maxY = Math.max(maxY, bb.maximumWorld.y);
+                    });
+                }
+                const newW = (maxX - minX);
+                const newH = (maxY - minY);
+                if (isFinite(newW) && isFinite(newH) && newW > 0 && newH > 0) {
+                    this.width = newW;
+                    this.height = newH;
+                }
+            } catch {}
         }
     }
 }
@@ -107,21 +136,39 @@ class Debris extends Entity {
 
 class Player extends Entity {
     constructor() {
-        super(SCREEN_WIDTH / 2, SCREEN_HEIGHT - 80, 48, 48);
+        super(SCREEN_WIDTH / 2, SCREEN_HEIGHT - 80, SizesConfig.player.width, SizesConfig.player.height);
         this.energy = MAX_HEALTH; this.charge = MAX_CHARGE; this.shootTime = 0;
         this.releaseDebris = 80;
         this.mesh = buildPlayerShipMesh();
         fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
         if (highlightLayer) { 
             try { 
-                // Highlight group children or single mesh
+                // Highlight group children ou single mesh, com metadados para restaurar após flash
+                const defaultColor = new BABYLON.Color3(0.12, 0.4, 0.8);
                 if (this.mesh.getChildren && !(this.mesh instanceof BABYLON.AbstractMesh)) {
-                    this.mesh.getChildren().filter(m => m instanceof BABYLON.Mesh).forEach(m => { try { highlightLayer.addMesh(m, new BABYLON.Color3(0.2, 0.6, 1)); } catch {} });
+                    this.mesh.getChildren().filter(m => m instanceof BABYLON.Mesh).forEach(m => { 
+                        try { 
+                            m.metadata = m.metadata || {}; 
+                            m.metadata.persistHL = true; 
+                            m.metadata.defaultHLColor = defaultColor; 
+                            highlightLayer.addMesh(m, defaultColor); 
+                        } catch {} 
+                    });
                 } else {
-                    highlightLayer.addMesh(this.mesh, new BABYLON.Color3(0.2, 0.6, 1));
+                    this.mesh.metadata = this.mesh.metadata || {};
+                    this.mesh.metadata.persistHL = true;
+                    this.mesh.metadata.defaultHLColor = defaultColor;
+                    highlightLayer.addMesh(this.mesh, defaultColor);
                 }
             } catch {} 
         }
+        // Guardar referência ao brilho de motor para pulsar com a carga
+        this.engineGlow = null;
+        try {
+            if (this.mesh.getChildren) {
+                this.engineGlow = this.mesh.getChildren().find(c => c && c.name === 'engineGlow');
+            }
+        } catch {}
         // Base rotations (top-down fix): mantenha X fixo em 90° e use Z para inclinar
         this.baseRotX = this.mesh.rotation.x || 0;
         this.baseRotZ = this.mesh.rotation.z || 0;
@@ -151,6 +198,29 @@ class Player extends Entity {
         if (gameState.rightButton && this.charge >= 150 && this.shootTime > 50) { this.pulse(0.3); this.charge -= 50; this.shootTime = 0; audioSystem.playSpecial(); }
         if (this.charge >= MAX_CHARGE && this.energy < MAX_HEALTH && temporizes(10)) this.energy++;
         if (engineFlamesEnabled && temporizes(2)) debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2 - 4));
+        
+        // Brilho sutil e pulsante quando a carga está alta (>= 80% do máximo)
+        try {
+            if (highlightLayer && this.mesh) {
+                const base = new BABYLON.Color3(0.12, 0.4, 0.8);
+                let color = base;
+                if (this.charge >= MAX_CHARGE * 0.8) {
+                    const pulse = 0.75 + 0.25 * Math.sin(gameState.numFrame * 0.15);
+                    color = new BABYLON.Color3(base.r * pulse, base.g * pulse, base.b * pulse);
+                }
+                if (this.mesh.getChildren && !(this.mesh instanceof BABYLON.AbstractMesh)) {
+                    this.mesh.getChildren().filter(m => m instanceof BABYLON.Mesh).forEach(m => { try { highlightLayer.addMesh(m, color); } catch {} });
+                } else {
+                    try { highlightLayer.addMesh(this.mesh, color); } catch {}
+                }
+            }
+            if (this.engineGlow && this.engineGlow.material) {
+                const baseColor = new BABYLON.Color3(1.0, 0.5, 0.1);
+                const pulseFactor = this.charge >= MAX_CHARGE * 0.8 ? (0.3 + 0.7 * (0.5 + 0.5 * Math.sin(gameState.numFrame * 0.2))) : 0.25;
+                try { this.engineGlow.material.emissiveColor = baseColor.scale(pulseFactor); } catch {}
+            }
+        } catch {}
+        
         gameState.playerHealth = this.energy; gameState.playerCharge = this.charge; gameState.playerX = this.x; gameState.playerY = this.y;
         this.updateMeshPosition();
     }
@@ -161,7 +231,7 @@ class Player extends Entity {
 
 class Missile extends Entity {
     constructor(x, y, velX, velY, friendly = false) {
-        super(x, y, 10, 10);
+        super(x, y, SizesConfig.missile.width, SizesConfig.missile.height);
         this.energy = MISSILE_HEALTH; this.dirX = Math.floor(velX * 100); this.dirY = Math.floor(velY * 100);
         this.incX = sign(this.dirX); this.incY = sign(this.dirY);
         this.dirX = Math.abs(this.dirX); this.dirY = Math.abs(this.dirY);
@@ -207,7 +277,7 @@ class Nuclear extends Missile {
     constructor(x, y, velX, velY, level = 0) {
         super(x, y, velX, velY, true);
         this.level = level; this.angle = angleDir(velX, velY);
-        const sizes = [20, 18, 14, 10]; this.width = this.height = sizes[level] || 10;
+        const sizes = SizesConfig.nuclearLevels; this.width = this.height = sizes[level] || SizesConfig.missile.width;
         this.mesh.dispose(); const size = 1 + level * 0.5;
         this.mesh = BABYLON.MeshBuilder.CreateSphere("nuclear", { diameter: size }, scene);
         this.mesh.material = createMaterial("nuclear", new BABYLON.Color3(1, 0, 0)); this.mesh.renderingGroupId = 1;
@@ -225,7 +295,7 @@ class Nuclear extends Missile {
 
 class Laser extends Entity {
     constructor() {
-        super(gameState.playerX, gameState.playerY - 10, 2, 50); this.energy = 2; this.releaseDebris = 4;
+        super(gameState.playerX, gameState.playerY - 10, SizesConfig.laser.width, SizesConfig.laser.height); this.energy = 2; this.releaseDebris = 4;
         this.mesh = BABYLON.MeshBuilder.CreateBox("laser", { width: 1, height: 1, depth: 0.3 }, scene);
         this.mesh.material = createMaterial("laser", new BABYLON.Color3(0, 1, 1)); this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height); registerGlowMesh(this.mesh); this.updateMeshPosition();
@@ -235,7 +305,7 @@ class Laser extends Entity {
 
 class EngineFlame extends Entity {
     constructor(x, y) {
-        super(x, y, 6, 6); this.life = 14; this.velX = (Math.random() - 0.5) * 2; this.velY = 2 + Math.random() * 1.5;
+        super(x, y, SizesConfig.engineFlame.width, SizesConfig.engineFlame.height); this.life = 14; this.velX = (Math.random() - 0.5) * 2; this.velY = 2 + Math.random() * 1.5;
         this.mesh = BABYLON.MeshBuilder.CreateDisc("engineFlame", { radius: 0.5, tessellation: 16 }, scene);
         const mat = createMaterial("engineFlameMat", new BABYLON.Color3(1.0, 0.5, 0.1)); this.mesh.material = mat;
         this.mesh.renderingGroupId = 1; this.mesh.billboardMode = BABYLON.AbstractMesh.BILLBOARDMODE_ALL; this.mesh.material.alpha = 0.8;
@@ -247,7 +317,7 @@ class EngineFlame extends Entity {
 class Enemy extends Entity {
     constructor() {
         // Increase logical size so imported models scale larger
-        super(random(SCREEN_WIDTH - 60) + 30, 30, 32, 32);
+        super(random(SCREEN_WIDTH - 60) + 30, 30, SizesConfig.enemy.width, SizesConfig.enemy.height);
         this.energy = ENEMY_HEALTH;
         this.movement = random(8); this.distance = random(50); this.shootTime = random(100) + 20; this.releaseDebris = 20;
         this.phase = Math.random() * Math.PI * 2; this.speed = 0.8 + Math.random() * 1.4;
@@ -289,7 +359,7 @@ const vx = this.x - oldX; const vy = this.y - oldY; if (this.mesh) {
 
 class Meteor extends Entity {
     constructor() {
-        super(0, 0, 5, 5); this.energy = METEOR_HEALTH; this.releaseDebris = 5;
+        super(0, 0, SizesConfig.meteor.width, SizesConfig.meteor.height); this.energy = METEOR_HEALTH; this.releaseDebris = 5;
         let angle; switch (random(4)) { case 0: this.x = 10; this.y = random(SCREEN_HEIGHT - 10); angle = random(90); if (angle > 45) angle += 269; break;
             case 1: this.x = SCREEN_WIDTH - 10; this.y = random(SCREEN_HEIGHT - 10); angle = between(135, 225); break;
             case 2: this.x = random(SCREEN_WIDTH - 10); this.y = 10; angle = between(45, 135); break;
@@ -309,7 +379,7 @@ class Meteor extends Entity {
 
 class Guided extends Entity {
     constructor(x, y) {
-        super(x, y, 10, 10); this.energy = 1; this.velX = 0; this.velY = 0; this.time = 0; this.releaseDebris = 5;
+        super(x, y, SizesConfig.guided.width, SizesConfig.guided.height); this.energy = 1; this.velX = 0; this.velY = 0; this.time = 0; this.releaseDebris = 5;
         this.mesh = BABYLON.MeshBuilder.CreateSphere("guided", { diameter: 1 }, scene);
         this.mesh.material = createMaterial("guided", new BABYLON.Color3(1, 0, 1)); this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
@@ -324,7 +394,7 @@ class Guided extends Entity {
 
 class Star extends Entity {
     constructor() {
-        super(random(SCREEN_WIDTH - 80) + 40, 40, 64, 48); this.energy = 100; this.releaseDebris = 500;
+        super(random(SCREEN_WIDTH - 80) + 40, 40, SizesConfig.star.width, SizesConfig.star.height); this.energy = 100; this.releaseDebris = 500;
         this.mesh = BABYLON.MeshBuilder.CreateDisc("star", { radius: 1, tessellation: 5 }, scene);
         this.mesh.material = createMaterial("star", new BABYLON.Color3(1, 1, 0)); this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
@@ -337,9 +407,8 @@ class Star extends Entity {
 class Rain extends Entity {
     constructor(x = null, y = null) {
         if (x === null) { x = random(SCREEN_WIDTH - 40) + 20; y = 40; }
-        super(x, y, 20, 20); this.energy = 100; this.radius = 0; this.releaseDebris = 15;
-        this.mesh = BABYLON.MeshBuilder.CreateTorus("rain", { diameter: 1, thickness: 0.25, tessellation: 16 }, scene);
-        this.mesh.material = createMaterial("rain", new BABYLON.Color3(0, 1, 0)); this.mesh.renderingGroupId = 1;
+        super(x, y, SizesConfig.rain.width, SizesConfig.rain.height); this.energy = 100; this.radius = 0; this.releaseDebris = 15;
+        this.mesh = buildBasicEnemyMesh(); this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
     }
     update() {
@@ -353,8 +422,8 @@ class Rain extends Entity {
 class Metralha extends Entity {
     constructor(x = null, y = null) {
         if (x === null) { x = random(SCREEN_WIDTH - 96) + 48; y = 48; }
-        super(x, y, 48, 48); this.energy = 10; this.releaseDebris = 100;
-        this.mesh = buildTurretMesh(); fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
+        super(x, y, SizesConfig.metralha.width, SizesConfig.metralha.height); this.energy = 10; this.releaseDebris = 100;
+        this.mesh = buildBasicEnemyMesh(); fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
     }
     update() {
         if (temporizes(25)) {
@@ -369,8 +438,8 @@ class Metralha extends Entity {
 
 class Transport extends Entity {
     constructor() {
-        super(0, random(SCREEN_HEIGHT / 2 - 40) + 40, 100, 20); this.energy = 500; this.releaseDebris = 40;
-        this.mesh = buildTransportMesh(new BABYLON.Color3(0.4, 0.3, 0.3)); fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
+        super(0, random(SCREEN_HEIGHT / 2 - 40) + 40, SizesConfig.transport.width, SizesConfig.transport.height); this.energy = 500; this.releaseDebris = 40;
+        this.mesh = buildBasicEnemyMesh(); fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
     }
     update() { if (temporizes(50)) enemyEntities.push(new Metralha(this.x, this.y)); if (temporizes(10)) this.y++; if (++this.x > SCREEN_WIDTH) this.destroy(); this.updateMeshPosition(); }
     onDestroy() { audioSystem.playExplosionBig(); triggerShake(3.0, 20); }
@@ -378,8 +447,8 @@ class Transport extends Entity {
 
 class Encrenca extends Entity {
     constructor() {
-        super(0, random(SCREEN_HEIGHT / 2 - 40) + 40, 100, 20); this.energy = 500; this.releaseDebris = 200;
-        this.mesh = buildTransportMesh(new BABYLON.Color3(0.3, 0.3, 0.3)); fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
+        super(0, random(SCREEN_HEIGHT / 2 - 40) + 40, SizesConfig.encrenca.width, SizesConfig.encrenca.height); this.energy = 500; this.releaseDebris = 200;
+        this.mesh = buildBasicEnemyMesh(); fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
     }
     update() { if (temporizes(100)) enemyEntities.push(new Rain(this.x, this.y)); if (temporizes(10)) this.y++; if (++this.x > SCREEN_WIDTH) this.destroy(); this.updateMeshPosition(); }
     onDestroy() { audioSystem.playExplosionBig(); }
