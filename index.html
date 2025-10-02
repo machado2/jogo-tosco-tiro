@@ -21,13 +21,14 @@
             cursor: none; /* hide mouse pointer */
         }
 
+        /* HUD */
         #hud {
             position: absolute;
             top: 10px;
             left: 10px;
             color: white;
             font-family: monospace;
-            font-size: 16px;
+            font-size: clamp(14px, 1.6vw, 18px);
             text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
             z-index: 100;
             pointer-events: none;
@@ -39,7 +40,7 @@
             border: 2px solid rgba(255,255,255,0.3);
             margin: 5px 0;
             position: relative;
-            width: 300px;
+            width: clamp(180px, 24vw, 360px);
         }
 
         .bar-fill {
@@ -47,21 +48,17 @@
             transition: width 0.2s;
         }
 
-        .bar-health {
-            background: linear-gradient(90deg, #ff0000, #ff6666);
-        }
-
-        .bar-charge {
-            background: linear-gradient(90deg, #0000ff, #6666ff);
-        }
+        .bar-health { background: linear-gradient(90deg, #ff0000, #ff6666); }
+        .bar-charge { background: linear-gradient(90deg, #0040ff, #66a0ff); }
 
         #score {
-            font-size: 24px;
+            font-size: clamp(22px, 2.2vw, 28px);
             font-weight: bold;
             margin-bottom: 10px;
         }
 
-        #game-over {
+        /* Overlays */
+        .center-overlay {
             display: none;
             position: absolute;
             top: 50%;
@@ -70,14 +67,25 @@
             text-align: center;
             color: white;
             font-family: monospace;
-            font-size: 48px;
+            font-size: clamp(36px, 5vw, 56px);
             text-shadow: 3px 3px 6px rgba(0,0,0,0.9);
+            z-index: 120;
+            pointer-events: none;
         }
+        .center-overlay.visible { display: block; }
 
-        #game-over.visible {
-            display: block;
+        #damage-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(255,0,0,0.25);
+            opacity: 0;
+            transition: opacity 120ms ease-out;
+            z-index: 110;
+            pointer-events: none;
         }
+        #damage-overlay.flash { opacity: 1; }
     </style>
+<link rel="icon" type="image/png" href="favicon.png">
 </head>
 <body>
     <canvas id="renderCanvas"></canvas>
@@ -96,16 +104,27 @@
                 <div id="charge-bar" class="bar-fill bar-charge" style="width: 100%"></div>
             </div>
         </div>
+        <div id="hints" style="opacity:0.85; margin-top: 6px;">
+            P: Pause • M: Mute <span id="muted-label" style="display:none">[Muted]</span>
+        </div>
     </div>
 
-    <div id="game-over">
+    <div id="game-over" class="center-overlay">
         <div>GAME OVER</div>
-        <div style="font-size: 24px; margin-top: 20px;">Click to restart</div>
+        <div style="font-size: clamp(18px, 2vw, 26px); margin-top: 20px;">Click to restart</div>
     </div>
+    <div id="paused" class="center-overlay">PAUSED</div>
+    <div id="damage-overlay"></div>
 
     <script src="https://cdn.babylonjs.com/babylon.js"></script>
-    <!-- Optional: materials/procedural helpers come with core for what we use -->
+    <script src="https://cdn.babylonjs.com/earcut.min.js"></script>
+    <!-- Order matters; simple globals, no build step -->
+    <script src="utils.js"></script>
     <script src="audio.js"></script>
+    <script src="visuals.js"></script>
+    <script src="entities.js"></script>
+    <script src="starfield.js"></script>
+    <script src="hud.js"></script>
     <script src="game.js"></script>
 </body>
 </html>

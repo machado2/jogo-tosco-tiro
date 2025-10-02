@@ -4,6 +4,8 @@ class AudioSystem {
         this.audioContext = null;
         this.masterGain = null;
         this.initialized = false;
+        this.volume = 0.3;
+        this.muted = false;
     }
 
     _rand(min, max) { return Math.random() * (max - min) + min; }
@@ -13,7 +15,7 @@ class AudioSystem {
             if (!this.audioContext) {
                 this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 this.masterGain = this.audioContext.createGain();
-                this.masterGain.gain.value = 0.3;
+                this.masterGain.gain.value = this.muted ? 0 : this.volume;
                 this.masterGain.connect(this.audioContext.destination);
             }
             if (this.audioContext.state === 'suspended') {
@@ -25,8 +27,13 @@ class AudioSystem {
         }
     }
 
+    setMuted(m) {
+        this.muted = !!m;
+        if (this.masterGain) this.masterGain.gain.value = this.muted ? 0 : this.volume;
+    }
+
     playShoot() {
-        if (!this.initialized) return;
+        if (!this.initialized || this.muted) return;
         
         const now = this.audioContext.currentTime;
         const osc = this.audioContext.createOscillator();
@@ -48,7 +55,7 @@ class AudioSystem {
     }
 
     playLaser() {
-        if (!this.initialized) return;
+        if (!this.initialized || this.muted) return;
         
         const now = this.audioContext.currentTime;
         const osc = this.audioContext.createOscillator();
@@ -70,7 +77,7 @@ class AudioSystem {
     }
 
     playExplosion() {
-        if (!this.initialized) return;
+        if (!this.initialized || this.muted) return;
         
         const now = this.audioContext.currentTime;
         
@@ -104,7 +111,7 @@ class AudioSystem {
     }
 
     playExplosionBig() {
-        if (!this.initialized) return;
+        if (!this.initialized || this.muted) return;
         const now = this.audioContext.currentTime;
         const bufferSize = this.audioContext.sampleRate * 0.6;
         const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
@@ -124,7 +131,7 @@ class AudioSystem {
     }
 
     playHit() {
-        if (!this.initialized) return;
+        if (!this.initialized || this.muted) return;
         
         const now = this.audioContext.currentTime;
         const osc = this.audioContext.createOscillator();
@@ -146,7 +153,7 @@ class AudioSystem {
     }
 
     playImpact() {
-        if (!this.initialized) return;
+        if (!this.initialized || this.muted) return;
         const now = this.audioContext.currentTime;
         const osc = this.audioContext.createOscillator();
         const gain = this.audioContext.createGain();
@@ -161,7 +168,7 @@ class AudioSystem {
     }
 
     playPowerup() {
-        if (!this.initialized) return;
+        if (!this.initialized || this.muted) return;
         
         const now = this.audioContext.currentTime;
         const osc = this.audioContext.createOscillator();
@@ -182,7 +189,7 @@ class AudioSystem {
     }
 
     playSpecial() {
-        if (!this.initialized) return;
+        if (!this.initialized || this.muted) return;
         
         const now = this.audioContext.currentTime;
         const osc1 = this.audioContext.createOscillator();
