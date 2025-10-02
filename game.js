@@ -50,6 +50,12 @@ let debrisBaseMesh = null;
 let debrisMaterial = null;
 let totalDebrisCount = 0;
 
+// Post FX and background
+let glowLayer = null;
+let renderingPipeline = null;
+let highlightLayer = null;
+let starfield = null;
+
 // Utility functions
 function random(max) {
     return Math.floor(Math.random() * max);
@@ -86,9 +92,11 @@ function temporizes(num) {
 function createMaterial(name, color) {
     if (materials[name]) return materials[name];
     const mat = new BABYLON.StandardMaterial(name, scene);
+    // Go for a crisp neon look
     mat.diffuseColor = color;
-    mat.emissiveColor = color.scale(0.3);
-    mat.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
+    mat.emissiveColor = color.scale(0.9);
+    mat.specularColor = new BABYLON.Color3(0, 0, 0);
+    mat.disableLighting = true; // 2D arcade vibe
     materials[name] = mat;
     return mat;
 }
@@ -100,6 +108,7 @@ function initDebrisPool() {
     debrisMaterial.emissiveColor = new BABYLON.Color3(1, 1, 1);
     debrisMaterial.disableLighting = true;
     debrisBaseMesh.material = debrisMaterial;
+    debrisBaseMesh.renderingGroupId = 1; // above background
     debrisBaseMesh.setEnabled(false);
 }
 
@@ -260,8 +269,14 @@ class Player extends Entity {
         
         this.mesh = BABYLON.Mesh.MergeMeshes([body, wing1, wing2, cockpit], true, true, undefined, false, true);
         this.mesh.material = createMaterial("player", new BABYLON.Color3(0.2, 0.6, 1));
+        this.mesh.renderingGroupId = 1; // ensure above background
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
+        
+        // Subtle outline for the hero
+        if (highlightLayer) {
+            try { highlightLayer.addMesh(this.mesh, new BABYLON.Color3(0.2, 0.6, 1)); } catch {}
+        }
         
         gameState.playerAlive = true;
     }
@@ -358,8 +373,9 @@ class Missile extends Entity {
         
         // Create mesh
         this.mesh = BABYLON.MeshBuilder.CreateSphere("missile", { diameter: 1 }, scene);
-        const color = friendly ? new BABYLON.Color3(0, 0.5, 1) : new BABYLON.Color3(1, 0.5, 0);
+        const color = friendly ? new BABYLON.Color3(0, 0.6, 1) : new BABYLON.Color3(1, 0.2, 0);
         this.mesh.material = createMaterial(friendly ? "friendlyMissile" : "enemyMissile", color);
+        this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -394,8 +410,9 @@ class Nuclear extends Missile {
         // Larger mesh for bigger nukes
         this.mesh.dispose();
         const size = 1 + level * 0.5;
-        this.mesh = BABYLON.MeshBuilder.CreateSphere("nuclear", { diameter: size }, scene);
+this.mesh = BABYLON.MeshBuilder.CreateSphere("nuclear", { diameter: size }, scene);
         this.mesh.material = createMaterial("nuclear", new BABYLON.Color3(1, 0, 0));
+        this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -424,8 +441,9 @@ class Laser extends Entity {
         this.energy = 2;
         this.releaseDebris = 4;
         
-        this.mesh = BABYLON.MeshBuilder.CreateBox("laser", { width: 1, height: 1, depth: 0.3 }, scene);
+this.mesh = BABYLON.MeshBuilder.CreateBox("laser", { width: 1, height: 1, depth: 0.3 }, scene);
         this.mesh.material = createMaterial("laser", new BABYLON.Color3(0, 1, 1));
+        this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -458,9 +476,10 @@ class Enemy extends Entity {
         spike2.position.x = 1;
         spike2.rotation.z = Math.PI / 2;
         
-        this.mesh = BABYLON.Mesh.MergeMeshes([body, spike1, spike2], true, true, undefined, false, true);
+this.mesh = BABYLON.Mesh.MergeMeshes([body, spike1, spike2], true, true, undefined, false, true);
         const gray = 0.5 + Math.random() * 0.3;
         this.mesh.material = createMaterial("enemy" + Math.random(), new BABYLON.Color3(gray, gray, gray));
+        this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
         
@@ -551,8 +570,9 @@ class Meteor extends Entity {
         this.restoX = 0;
         this.restoY = 0;
         
-        this.mesh = BABYLON.MeshBuilder.CreatePolyhedron("meteor", { type: 1, size: 1 }, scene);
+this.mesh = BABYLON.MeshBuilder.CreatePolyhedron("meteor", { type: 1, size: 1 }, scene);
         this.mesh.material = createMaterial("meteor", new BABYLON.Color3(0.4, 0.3, 0.2));
+        this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -589,8 +609,9 @@ class Guided extends Entity {
         this.time = 0;
         this.releaseDebris = 5;
         
-        this.mesh = BABYLON.MeshBuilder.CreateSphere("guided", { diameter: 1 }, scene);
+this.mesh = BABYLON.MeshBuilder.CreateSphere("guided", { diameter: 1 }, scene);
         this.mesh.material = createMaterial("guided", new BABYLON.Color3(1, 0, 1));
+        this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -626,8 +647,9 @@ class Star extends Entity {
         this.releaseDebris = 500;
         
         // Star shape
-        this.mesh = BABYLON.MeshBuilder.CreateDisc("star", { radius: 1, tessellation: 5 }, scene);
+this.mesh = BABYLON.MeshBuilder.CreateDisc("star", { radius: 1, tessellation: 5 }, scene);
         this.mesh.material = createMaterial("star", new BABYLON.Color3(1, 1, 0));
+        this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -667,8 +689,9 @@ class Rain extends Entity {
         this.radius = 0;
         this.releaseDebris = 15;
         
-        this.mesh = BABYLON.MeshBuilder.CreateTorus("rain", { diameter: 1, thickness: 0.25, tessellation: 16 }, scene);
+this.mesh = BABYLON.MeshBuilder.CreateTorus("rain", { diameter: 1, thickness: 0.25, tessellation: 16 }, scene);
         this.mesh.material = createMaterial("rain", new BABYLON.Color3(0, 1, 0));
+        this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -714,8 +737,9 @@ class Metralha extends Entity {
         const cyl = BABYLON.MeshBuilder.CreateCylinder("metralhaCyl", { height: 2, diameter: 1 }, scene);
         cyl.position.y = 2;
         
-        this.mesh = BABYLON.Mesh.MergeMeshes([box, cyl], true, true, undefined, false, true);
+this.mesh = BABYLON.Mesh.MergeMeshes([box, cyl], true, true, undefined, false, true);
         this.mesh.material = createMaterial("metralha", new BABYLON.Color3(0, 0.8, 0.4));
+        this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -755,8 +779,9 @@ class Transport extends Entity {
         this.energy = 500;
         this.releaseDebris = 40;
         
-        this.mesh = BABYLON.MeshBuilder.CreateBox("transport", { width: 1, height: 1, depth: 2 }, scene);
+this.mesh = BABYLON.MeshBuilder.CreateBox("transport", { width: 1, height: 1, depth: 2 }, scene);
         this.mesh.material = createMaterial("transport", new BABYLON.Color3(0.4, 0.3, 0.3));
+        this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -778,8 +803,9 @@ class Encrenca extends Entity {
         this.energy = 500;
         this.releaseDebris = 200;
         
-        this.mesh = BABYLON.MeshBuilder.CreateBox("encrenca", { width: 1, height: 1, depth: 2 }, scene);
+this.mesh = BABYLON.MeshBuilder.CreateBox("encrenca", { width: 1, height: 1, depth: 2 }, scene);
         this.mesh.material = createMaterial("encrenca", new BABYLON.Color3(0.3, 0.3, 0.3));
+        this.mesh.renderingGroupId = 1;
         fitMeshToPixels(this.mesh, this.width, this.height);
         this.updateMeshPosition();
     }
@@ -881,6 +907,9 @@ function cleanupEntities() {
 function gameLoop() {
     if (gameState.gameOver) return;
     
+    // Background scroll
+    if (starfield) starfield.update();
+    
     // Update all entities
     friendlyEntities.forEach(e => e.update());
     enemyEntities.forEach(e => e.update());
@@ -927,16 +956,35 @@ function createScene() {
     camera.orthoTop = SCREEN_HEIGHT / 2;
     camera.orthoBottom = -SCREEN_HEIGHT / 2;
     
-    // Ambient light
+    // Simple ambient setup
     const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
-    light.intensity = 0.8;
+    light.intensity = 0.6;
     
-    // Point light for dramatic effect
-    const pointLight = new BABYLON.PointLight("pointLight", new BABYLON.Vector3(0, 0, -30), scene);
-    pointLight.intensity = 0.5;
+    // Post FX: glow + bloom + FXAA + vignette
+    try {
+        glowLayer = new BABYLON.GlowLayer("glow", scene, { blurKernelSize: 64 });
+        glowLayer.intensity = 0.6;
+        highlightLayer = new BABYLON.HighlightLayer("hl", scene, { blurTextureSizeRatio: 0.5 });
+        renderingPipeline = new BABYLON.DefaultRenderingPipeline("default", true, scene, [camera]);
+        renderingPipeline.fxaaEnabled = true;
+        renderingPipeline.bloomEnabled = true;
+        renderingPipeline.bloomKernel = 64;
+        renderingPipeline.bloomScale = 0.5;
+        renderingPipeline.bloomThreshold = 0.6;
+        renderingPipeline.bloomWeight = 0.5;
+        renderingPipeline.imageProcessingEnabled = true;
+        renderingPipeline.imageProcessing.contrast = 1.08;
+        renderingPipeline.imageProcessing.exposure = 1.05;
+        renderingPipeline.imageProcessing.vignetteEnabled = true;
+        renderingPipeline.imageProcessing.vignetteColor = new BABYLON.Color4(0, 0, 0, 1);
+        renderingPipeline.imageProcessing.vignetteWeight = 0.9;
+    } catch {}
     
     // Initialize pooled debris
     initDebrisPool();
+
+    // Background starfield
+    starfield = new Starfield(280);
 
     // Create initial player
     friendlyEntities.push(new Player());
@@ -1051,3 +1099,50 @@ function createScene() {
 
 // Start the game
 window.addEventListener('DOMContentLoaded', createScene);
+
+// Simple parallax starfield background (no textures)
+class Starfield {
+    constructor(count = 250) {
+        this.stars = [];
+        // Base star plane
+        const base = BABYLON.MeshBuilder.CreatePlane("starBase", { size: 1 }, scene);
+        base.isPickable = false;
+        base.billboardMode = BABYLON.AbstractMesh.BILLBOARDMODE_ALL;
+        base.renderingGroupId = 0; // background group
+        const mat = new BABYLON.StandardMaterial("starMat", scene);
+        mat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+        mat.disableLighting = true;
+        base.material = mat;
+        base.setEnabled(false);
+
+        for (let i = 0; i < count; i++) {
+            const inst = base.createInstance("starInst" + i);
+            inst.setEnabled(true);
+            inst.isPickable = false;
+            inst.renderingGroupId = 0;
+            inst.position.x = Math.random() * SCREEN_WIDTH - SCREEN_WIDTH / 2;
+            inst.position.y = Math.random() * SCREEN_HEIGHT - SCREEN_HEIGHT / 2;
+            inst.scaling.x = inst.scaling.y = 0.5 + Math.random() * 1.5;
+            // Slight color variation (blue/cool white)
+            const c = (i % 5 === 0)
+                ? new BABYLON.Color3(0.6, 0.7, 1)
+                : new BABYLON.Color3(1, 1, 1);
+            inst.material = mat.clone("starMatInst" + i);
+            inst.material.emissiveColor = c;
+            const speed = 0.4 + Math.random() * 1.2; // parallax speed
+            this.stars.push({ mesh: inst, speed });
+        }
+    }
+
+    update() {
+        const bottom = -SCREEN_HEIGHT / 2;
+        const top = SCREEN_HEIGHT / 2;
+        for (const s of this.stars) {
+            s.mesh.position.y -= s.speed;
+            if (s.mesh.position.y < bottom) {
+                s.mesh.position.y = top;
+                s.mesh.position.x = Math.random() * SCREEN_WIDTH - SCREEN_WIDTH / 2;
+            }
+        }
+    }
+}
