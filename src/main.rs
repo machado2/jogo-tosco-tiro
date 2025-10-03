@@ -69,6 +69,14 @@ struct Muted(bool);
 #[derive(Component)]
 struct Player;
 
+#[derive(Component, Clone, Copy)]
+enum FiringPattern {
+    Single,
+    Spread { bullet_count: u32, spread_angle: f32 },
+    Aimed,
+    Burst { bullet_count: u32, burst_delay: f32 },
+}
+
 // ====== Procedural audio engine (rodio) ======
 #[derive(Resource, Clone)]
 struct AudioEngine {
@@ -1096,6 +1104,7 @@ fn spawn_enemy(
         Collider { w: size.x, h: size.y },
         Health { hp, max: hp },
         Trail { positions: Vec::new(), max_length: 10, color: trail_color },
+        FiringPattern::Single,
         Name::new("Enemy"),
     ));
     let eid = e.id();
@@ -1112,13 +1121,13 @@ fn spawn_enemy(
 fn enemy_behavior(
     time: Res<Time>,
     mut commands: Commands,
-    mut q: Query<(Entity, &mut Transform, &mut Enemy, &Collider), Without<Player>>,
+    mut q: Query<(Entity, &mut Transform, &mut Enemy, &Collider, &FiringPattern), Without<Player>>,
     q_player: Query<&Transform, With<Player>>,
     mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let player_t = q_player.get_single().ok().map(|t| t.translation);
-    for (entity, mut t, mut e, col) in &mut q {
+    for (entity, mut t, mut e, col, pattern) in &mut q {
         let old = t.translation;
         // movimento
         match e.movement {
@@ -1234,11 +1243,9 @@ fn enemy_behavior(
         if !matches!(e.kind, EnemyKind::Meteor) {
             if e.shoot_time <= 0 {
                 e.shoot_time = thread_rng().gen_range(20..180);
-                // 2 balas
                 let bx = t.translation.x;
                 let by = t.translation.y - col.h / 2.0;
-                spawn_missile(&mut commands, &mut meshes, &mut materials, Vec2::new(bx - 9.0, by - 10.0), Vec2::new(0.0, -180.0), false);
-                spawn_missile(&mut commands, &mut meshes, &mut materials, Vec2::new(bx + 9.0, by - 10.0), Vec2::new(0.0, -180.0), false);
+                fire_pattern(&mut commands, &mut meshes, &mut materials, Vec2::new(bx, by - 10.0), *pattern, player_t);
             } else {
                 e.shoot_time -= 1;
             }
@@ -1252,6 +1259,48 @@ fn enemy_behavior(
 
         // leve "bank" visual: aqui omitimos, pois não rotacionamos mesh infantil
         let _vx = t.translation.x - old.x; let _vy = t.translation.y - old.y; let _ = (_vx, _vy);
+    }
+}
+
+fn fire_pattern(
+    commands: &mut Commands,
+    meshes: &mut Assets<bevy::render::mesh::Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    pos: Vec2,
+    pattern: FiringPattern,
+    player_pos: Option<Vec3>,
+) {
+    match pattern {
+        FiringPattern::Single => {
+            spawn_missile(commands, meshes, materials, Vec2::new(pos.x - 9.0, pos.y), Vec2::new(0.0, -180.0), false);
+            spawn_missile(commands, meshes, materials, Vec2::new(pos.x + 9.0, pos.y), Vec2::new(0.0, -180.0), false);
+        }
+        FiringPattern::Spread { bullet_count, spread_angle } => {
+            let half_angle = spread_angle / 2.0;
+            let angle_step = if bullet_count > 1 { spread_angle / (bullet_count - 1) as f32 } else { 0.0 };
+            for i in 0..bullet_count {
+                let angle = -std::f32::consts::FRAC_PI_2 - half_angle + angle_step * i as f32;
+                let vel = Vec2::new(angle.cos() * 180.0, angle.sin() * 180.0);
+                spawn_missile(commands, meshes, materials, pos, vel, false);
+            }
+        }
+        FiringPattern::Aimed => {
+            if let Some(target) = player_pos {
+                let dx = target.x - pos.x;
+                let dy = target.y - pos.y;
+                let angle = dy.atan2(dx);
+                let vel = Vec2::new(angle.cos() * 180.0, angle.sin() * 180.0);
+                spawn_missile(commands, meshes, materials, pos, vel, false);
+            } else {
+                spawn_missile(commands, meshes, materials, pos, Vec2::new(0.0, -180.0), false);
+            }
+        }
+        FiringPattern::Burst { bullet_count, burst_delay: _ } => {
+            for i in 0..bullet_count {
+                let offset_x = (i as f32 - bullet_count as f32 / 2.0) * 8.0;
+                spawn_missile(commands, meshes, materials, Vec2::new(pos.x + offset_x, pos.y), Vec2::new(0.0, -180.0), false);
+            }
+        }
     }
 }
 

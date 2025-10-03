@@ -1,32 +1,31 @@
-# Agent Guide
+# Agent Instructions
 
 ## Commands
 
-**Setup**: `cargo build`
-
-**Build**: `cargo build --release`
-
-**Lint**: `cargo clippy`
-
-**Test**: `cargo test`
-
-**Dev**: `cargo run`
+- **Setup**: `cargo build` (dependencies auto-download)
+- **Build**: `cargo build` (debug) or `cargo build --release` (optimized)
+- **Lint**: `cargo clippy`
+- **Format**: `cargo fmt`
+- **Test**: `cargo test`
+- **Run**: `cargo run` (launches game window)
 
 ## Tech Stack
 
-- **Rust** (2021 edition) with **Bevy 0.13** game engine
-- **bevy_egui** for UI, **rodio** for audio
-- Single-file game at `src/main.rs` (~90s shooter remake)
+- **Rust**: Game engine in Rust using Bevy 0.13 (ECS-based game framework)
+- **Bevy**: Entity-Component-System architecture with sprite rendering, bloom effects
+- **bevy_egui**: In-game UI (pause menu, game over screen)
+- **Procedural Audio**: `rodio` for runtime audio synthesis (explosions, lasers, beeps)
+- **Output**: Native desktop app (not web-based despite README mentioning Babylon.js from earlier version)
 
 ## Structure
 
-- `src/main.rs`: All game logic (ECS systems, components, resources)
-- `assets/`: Game assets (sprites, audio)
-- Uses Bevy's ECS architecture with systems, components, and resources
+- `src/main.rs`: Complete game implementation (player, enemies, bullets, particles, audio, collision, scoring)
+- `assets/`: Game assets (favicon, etc.)
+- Build artifacts in `target/` (gitignored)
 
-## Code Style
+## Code Conventions
 
-- Portuguese comments in original code (preserve existing style)
-- Constants in SCREAMING_SNAKE_CASE at top of file
-- Component structs use derive macros, systems use Bevy queries
-- No rustfmt config; use default Rust formatting
+- Uses Bevy ECS patterns: Components, Systems, Resources, States
+- Procedural generation for meshes (triangles, diamonds) and audio (synthesizers)
+- 640×480 game window, world coords centered at origin
+- Comment sparingly; prefer clear naming
