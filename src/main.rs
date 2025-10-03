@@ -107,9 +107,7 @@ impl AudioEngine {
         let _ = self.tx.send(AudioMsg::Play { data, sample_rate });
     }
 
-    fn shoot(&self) { let sr = 44100; let data = synth_beep(sr, 0.08, 900.0, 0.25, Wave::Square, Some(60.0)); self.play_buffer(data, sr); }
     fn shoot_pitch(&self, pitch: f32) { let sr = 44100; let data = synth_beep(sr, 0.08, 800.0 * pitch, 0.25, Wave::Square, Some(60.0)); self.play_buffer(data, sr); }
-    fn laser(&self) { let sr = 44100; let data = synth_gliss(sr, 0.18, 500.0, 1200.0, 0.22, Wave::Sine); self.play_buffer(data, sr); }
     fn laser_sweep(&self, start: f32, end: f32) { let sr = 44100; let data = synth_gliss(sr, 0.18, start, end, 0.22, Wave::Sine); self.play_buffer(data, sr); }
     fn special(&self) {
         let sr = 44100;
@@ -241,6 +239,9 @@ struct Particle2D {
 struct ToDespawn;
 
 #[derive(Component)]
+struct TrailTimer(Timer);
+
+#[derive(Component)]
 struct Star { speed: f32 }
 
 #[derive(Component)]
@@ -334,6 +335,33 @@ fn mesh_arrow() -> bevy::render::mesh::Mesh {
     mesh
 }
 
+fn mesh_hexagon() -> bevy::render::mesh::Mesh {
+    use std::f32::consts::PI;
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    // hexágono regular de raio 0.5
+    let mut positions: Vec<[f32;3]> = Vec::new();
+    let mut uvs: Vec<[f32;2]> = Vec::new();
+    let normals: Vec<[f32;3]> = vec![[0.0, 0.0, 1.0]; 7];
+    positions.push([0.0, 0.0, 0.0]); uvs.push([0.5,0.5]); // centro
+    for i in 0..6 {
+        let a = i as f32 * PI / 3.0;
+        positions.push([0.5*a.cos(), 0.5*a.sin(), 0.0]);
+        uvs.push([0.5 + 0.5*a.cos(), 0.5 + 0.5*a.sin()]);
+    }
+    let mut idx: Vec<u32> = Vec::new();
+    for i in 1..=6 {
+        let next = if i==6 {1} else {i+1};
+        idx.extend_from_slice(&[0, i as u32, next as u32]);
+    }
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(idx));
+    mesh
+}
+
+struct ShipBounds { width_units: f32, height_units: f32 }
+
 fn spawn_ship_visual(
     parent: &mut ChildBuilder,
     meshes: &mut Assets<bevy::render::mesh::Mesh>,
@@ -341,19 +369,24 @@ fn spawn_ship_visual(
     size: Vec2,
     seed: u32,
     base_color: Color,
-) {
+) -> ShipBounds {
     let mut rng = StdRng::seed_from_u64(seed as u64);
-    let choice: u8 = rng.gen_range(0..3);
+let choice: u8 = rng.gen_range(0..4);
     let mesh = match choice {
         0 => mesh_triangle(),
         1 => mesh_diamond(),
-        _ => mesh_arrow(),
+        2 => mesh_arrow(),
+        _ => mesh_hexagon(),
     };
     // Grupo raiz que será escalado ao tamanho alvo
     let mut root = parent.spawn((SpatialBundle { transform: Transform::from_scale(Vec3::new(size.x, size.y, 1.0)), ..default() }, Name::new("ship_root")));
+    // bounds em unidades locais
+let mut width_units_base: f32 = match choice { 0 => 1.0, 1 => 0.8, 2 => 0.8, 3 => 1.0, _ => 1.0 };
+    let height_units_base = 1.2;
+    let mut max_wing_w = 0.0f32;
     root.with_children(|g| {
         // Hull central (cor base)
-let hull_mat = materials.add(ColorMaterial { color: base_color, ..default() });
+        let hull_mat = materials.add(ColorMaterial { color: base_color, ..default() });
         let mesh_h = meshes.add(mesh);
         g.spawn(MaterialMesh2dBundle {
             mesh: Mesh2dHandle(mesh_h),
@@ -363,10 +396,11 @@ let hull_mat = materials.add(ColorMaterial { color: base_color, ..default() });
         });
         // Asas segmentadas simétricas para variedade
         let mut rng = StdRng::seed_from_u64((seed as u64) ^ 0xA5A5_A5A5);
-let wing_mat = materials.add(ColorMaterial { color: base_color * 0.8, ..default() });
+        let wing_mat = materials.add(ColorMaterial { color: base_color * 0.8, ..default() });
         for i in 0..4 {
             let y = 0.15 - 0.1 * i as f32; // posições ao longo do corpo
             let w = 0.15 + rng.gen_range(0.05..0.18) * (1.0 - i as f32 * 0.18);
+            max_wing_w = max_wing_w.max(w);
             let h = 0.05 + rng.gen_range(0.02..0.06);
             let wing = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(w, h), ..Default::default() }));
             // esquerda
@@ -386,23 +420,34 @@ let wing_mat = materials.add(ColorMaterial { color: base_color * 0.8, ..default(
         }
         // Cockpit brilhante (glow)
         let cockpit = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(0.07, 0.06), ..Default::default() }));
-let cockpit_mat = materials.add(ColorMaterial { color: Color::rgba(0.6, 1.6, 2.0, 1.0), ..default() });
+        let cockpit_mat = materials.add(ColorMaterial { color: Color::rgba(0.6, 1.6, 2.0, 1.0), ..default() });
         g.spawn(MaterialMesh2dBundle {
             mesh: Mesh2dHandle(cockpit),
             material: cockpit_mat,
             transform: Transform::from_translation(Vec3::new(0.0, 0.12, 0.1)),
             ..default()
         });
-        // Listras/acento (glow fraco)
+        // Listras/acento (glow fraco) + pequena antena
         let stripe = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(0.4, 0.01), ..Default::default() }));
-let stripe_mat = materials.add(ColorMaterial { color: Color::rgba(2.0, 1.4, 0.5, 0.6), ..default() });
+        let stripe_mat = materials.add(ColorMaterial { color: Color::rgba(2.0, 1.4, 0.5, 0.6), ..default() });
         g.spawn(MaterialMesh2dBundle {
             mesh: Mesh2dHandle(stripe),
             material: stripe_mat,
             transform: Transform::from_translation(Vec3::new(0.0, -0.05, 0.05)),
             ..default()
         });
+        let antenna = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(0.01, 0.08), ..Default::default() }));
+        let antenna_mat = materials.add(ColorMaterial { color: base_color * 1.2, ..default() });
+        g.spawn(MaterialMesh2dBundle {
+            mesh: Mesh2dHandle(antenna),
+            material: antenna_mat,
+            transform: Transform::from_translation(Vec3::new(0.0, 0.3, 0.02)),
+            ..default()
+        });
     });
+    let wings_width_units = 0.5 + 4.0 * max_wing_w;
+    let width_units = width_units_base.max(wings_width_units);
+    ShipBounds { width_units, height_units: height_units_base }
 }
 
 fn spawn_engine_glow(
@@ -442,6 +487,44 @@ fn setup(
         },
         BloomSettings::NATURAL,
     ));
+
+    // Vignette simples por bordas
+    let edge_thickness = 40.0;
+    let z_vignette = 99.0;
+    let top = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() }));
+    let mat_v = materials.add(ColorMaterial { color: Color::rgba(0.0, 0.0, 0.0, 0.18), ..default() });
+    // Top
+    commands.spawn(MaterialMesh2dBundle {
+        mesh: Mesh2dHandle(top.clone()),
+        material: mat_v.clone(),
+        transform: Transform::from_translation(Vec3::new(0.0, SCREEN_HEIGHT / 2.0 - edge_thickness / 2.0, z_vignette))
+            .with_scale(Vec3::new(SCREEN_WIDTH, edge_thickness, 1.0)),
+        ..default()
+    });
+    // Bottom
+    commands.spawn(MaterialMesh2dBundle {
+        mesh: Mesh2dHandle(top.clone()),
+        material: mat_v.clone(),
+        transform: Transform::from_translation(Vec3::new(0.0, -SCREEN_HEIGHT / 2.0 + edge_thickness / 2.0, z_vignette))
+            .with_scale(Vec3::new(SCREEN_WIDTH, edge_thickness, 1.0)),
+        ..default()
+    });
+    // Left
+    commands.spawn(MaterialMesh2dBundle {
+        mesh: Mesh2dHandle(top.clone()),
+        material: mat_v.clone(),
+        transform: Transform::from_translation(Vec3::new(-SCREEN_WIDTH / 2.0 + edge_thickness / 2.0, 0.0, z_vignette))
+            .with_scale(Vec3::new(edge_thickness, SCREEN_HEIGHT, 1.0)),
+        ..default()
+    });
+    // Right
+    commands.spawn(MaterialMesh2dBundle {
+        mesh: Mesh2dHandle(top),
+        material: mat_v,
+        transform: Transform::from_translation(Vec3::new(SCREEN_WIDTH / 2.0 - edge_thickness / 2.0, 0.0, z_vignette))
+            .with_scale(Vec3::new(edge_thickness, SCREEN_HEIGHT, 1.0)),
+        ..default()
+    });
 
     // fundo preto
     commands.insert_resource(ClearColor(Color::BLACK));
@@ -485,15 +568,22 @@ let base_mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), .
     let mut player_entity = commands.spawn((
         SpatialBundle { transform: Transform::from_translation(player_pos), ..default() },
         Player,
+        // placeholder collider; ajustaremos após construir a nave
         Collider { w: SIZE_PLAYER.x, h: SIZE_PLAYER.y },
         Health { hp: MAX_HEALTH, max: MAX_HEALTH },
         Charge { value: MAX_CHARGE, max: MAX_CHARGE },
         Name::new("Player"),
     ));
+    // construir nave e obter bounds
+    let mut ship_bounds: Option<ShipBounds> = None;
+    let pid = player_entity.id();
     player_entity.with_children(|c| {
-        spawn_ship_visual(c, &mut meshes, &mut materials, SIZE_PLAYER, 12345, Color::rgb(0.2, 0.5, 0.9));
+        let b = spawn_ship_visual(c, &mut meshes, &mut materials, SIZE_PLAYER, 12345, Color::rgb(0.2, 0.5, 0.9));
+        ship_bounds = Some(b);
         spawn_engine_glow(c, &mut meshes, &mut materials, 0.8);
     });
+    drop(player_entity);
+    if let Some(b) = ship_bounds { if let Some(mut ecmd) = commands.get_entity(pid) { ecmd.insert(Collider { w: b.width_units * SIZE_PLAYER.x, h: b.height_units * SIZE_PLAYER.y }); } }
 }
 
 // ====== Systems ======
@@ -666,6 +756,7 @@ fn spawn_missile(
         Bullet { friendly, damage: 1, laser: false },
         Collider { w: SIZE_MISSILE.x, h: SIZE_MISSILE.y },
         Velocity(Vec2::new(vel.x, vel.y)),
+        TrailTimer(Timer::from_seconds(0.045, TimerMode::Repeating)),
         Name::new(if friendly { "Missile(F)" } else { "Missile(E)" }),
     ));
     // halo glow como filho
@@ -698,18 +789,27 @@ fn follow_laser_to_player(
 fn move_bullets(
     time: Res<Time>,
     mut commands: Commands,
-    mut q: Query<(Entity, &mut Transform, &Velocity, &Bullet)>,
+    mut q: Query<(Entity, &mut Transform, &Velocity, &Bullet, Option<&mut TrailTimer>)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    for (e, mut t, v, b) in &mut q {
+    for (e, mut t, v, b, trail) in &mut q {
         if b.laser {
             // laser sobe um pouco (o Lifetime remove depois)
             t.translation.y += -700.0 * time.delta_seconds();
         } else {
             t.translation += Vec3::new(v.x, v.y, 0.0) * time.delta_seconds();
+            if let Some(mut timer) = trail {
+                timer.0.tick(time.delta());
+                if timer.0.just_finished() {
+                    let c = if b.friendly { Color::rgb(1.0, 1.0, 1.0) } else { Color::rgb(1.0, 0.3, 0.3) };
+                    emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(t.translation.x, t.translation.y), c, 1, 30.0..90.0, 0.008..0.02);
+                }
+            }
         }
         if t.translation.x < -SCREEN_WIDTH/2.0 - 10.0 || t.translation.x > SCREEN_WIDTH/2.0 + 10.0 ||
            t.translation.y < -SCREEN_HEIGHT/2.0 - 10.0 || t.translation.y > SCREEN_HEIGHT/2.0 + 10.0 {
-            commands.entity(e).insert(ToDespawn);
+            if let Some(mut ecmd) = commands.get_entity(e) { ecmd.despawn_recursive(); }
         }
     }
 }
@@ -717,7 +817,7 @@ fn move_bullets(
 fn lifetime_cleanup(time: Res<Time>, mut commands: Commands, mut q: Query<(Entity, &mut Lifetime)>) {
     for (e, mut lt) in &mut q {
         lt.timer.tick(time.delta());
-        if lt.timer.finished() { commands.entity(e).insert(ToDespawn); }
+        if lt.timer.finished() { if let Some(mut ecmd) = commands.get_entity(e) { ecmd.despawn_recursive(); } }
     }
 }
 
@@ -788,14 +888,20 @@ fn spawn_enemy(
     let mut e = commands.spawn((
         SpatialBundle { transform: Transform::from_translation(Vec3::new(x, y, 9.0)), ..default() },
         Enemy { movement: rng.gen_range(0..8), distance: rng.gen_range(20..70), phase: rng.gen_range(0.0..(std::f32::consts::TAU)), speed: speed / 100.0, shoot_time: rng.gen_range(20..120), kind },
+        // placeholder; ajusta após construir
         Collider { w: size.x, h: size.y },
         Health { hp, max: hp },
         Name::new("Enemy"),
     ));
+    let eid = e.id();
+    let mut bounds: Option<ShipBounds> = None;
     e.with_children(|c| {
         let seed = rng.gen();
-        spawn_ship_visual(c, meshes, materials, size, seed, color);
+        let b = spawn_ship_visual(c, meshes, materials, size, seed, color);
+        bounds = Some(b);
     });
+    drop(e);
+    if let Some(b) = bounds { if let Some(mut ecmd) = commands.get_entity(eid) { ecmd.insert(Collider { w: b.width_units * size.x, h: b.height_units * size.y }); } }
 }
 
 fn enemy_behavior(
@@ -852,7 +958,7 @@ fn enemy_behavior(
 
         // se sair muito da tela, remove
         if t.translation.y < -SCREEN_HEIGHT/2.0 - 30.0 || t.translation.x < -SCREEN_WIDTH/2.0 - 30.0 || t.translation.x > SCREEN_WIDTH/2.0 + 30.0 {
-            commands.entity(entity).insert(ToDespawn);
+            if let Some(mut ecmd) = commands.get_entity(entity) { ecmd.despawn_recursive(); }
             continue;
         }
 
@@ -865,11 +971,13 @@ fn collisions_and_damage(
     mut commands: Commands,
     mut score: ResMut<Score>,
     mut shake: ResMut<Shake>,
+    time: Res<Time>,
     mut sets: ParamSet<(
-        Query<(Entity, &GlobalTransform, &Collider, &mut Health), With<Player>>,
-        Query<(Entity, &GlobalTransform, &Collider, &mut Health, &Enemy)>,
-        Query<(Entity, &GlobalTransform, &Collider, &Bullet)>,
+        Query<(Entity, &GlobalTransform, &Collider, &mut Health, &Enemy), Without<Player>>,
+        Query<(Entity, &GlobalTransform, &Collider, &Bullet, Option<&Velocity>)>,
     )>,
+    q_player_info: Query<(&GlobalTransform, &Collider), With<Player>>,
+    mut q_player_health: Query<(Entity, &mut Health), With<Player>>,
     audio: Res<AudioEngine>,
     muted: Res<Muted>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -877,26 +985,32 @@ fn collisions_and_damage(
 ) {
     use std::collections::HashSet;
     // Snapshot bullets to avoid overlapping ParamSet borrows
-    let bullets: Vec<(Entity, f32, f32, f32, f32, i32, bool)> = sets
-        .p2()
+    let bullets: Vec<(Entity, f32, f32, f32, f32, i32, bool, f32, f32)> = sets
+        .p1()
         .iter()
-        .map(|(e, t, c, b)| (e, t.translation().x, t.translation().y, c.w, c.h, b.damage, b.friendly))
+        .map(|(e, t, c, b, v)| {
+            let (vx, vy) = v.map(|vv| (vv.x, vv.y)).unwrap_or((0.0, 0.0));
+            (e, t.translation().x, t.translation().y, c.w, c.h, b.damage, b.friendly, vx, vy)
+        })
         .collect();
     let mut removed_bullets: HashSet<Entity> = HashSet::new();
     let mut removed_enemies: HashSet<Entity> = HashSet::new();
 
     // friendly bullets x enemies
-    for (be, bx, by, bw, bh, dmg, _friendly) in bullets.iter().copied().filter(|b| b.6) {
+    let dt = time.delta_seconds();
+    for (be, bx, by, bw, bh, dmg, _friendly, vx, vy) in bullets.iter().copied().filter(|b| b.6) {
         if removed_bullets.contains(&be) { continue; }
-        for (ee, et, ec, mut eh, enemy) in sets.p1().iter_mut() {
+        let extra_w = vx.abs() * dt;
+        let extra_h = vy.abs() * dt;
+        for (ee, et, ec, mut eh, enemy) in sets.p0().iter_mut() {
             if removed_enemies.contains(&ee) { continue; }
             let ex = et.translation().x;
             let ey = et.translation().y;
-            let dx = (bx - ex).abs() - (bw / 2.0) - (ec.w / 2.0);
-            let dy = (by - ey).abs() - (bh / 2.0) - (ec.h / 2.0);
+            let dx = (bx - ex).abs() - (bw / 2.0 + extra_w) - (ec.w / 2.0);
+            let dy = (by - ey).abs() - (bh / 2.0 + extra_h) - (ec.h / 2.0);
             if dx <= 0.0 && dy <= 0.0 {
                 eh.hp -= dmg;
-                commands.entity(be).insert(ToDespawn);
+                if let Some(mut ecmd) = commands.get_entity(be) { ecmd.despawn_recursive(); }
                 removed_bullets.insert(be);
                 if eh.hp <= 0 {
                     score.0 += match enemy.kind { EnemyKind::Basic => POINTS_ENEMY, EnemyKind::Meteor => POINTS_METEOR, EnemyKind::Special => POINTS_SPECIAL };
@@ -907,7 +1021,7 @@ fn collisions_and_damage(
                     let ex = ex;
                     let ey = ey;
                     emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(ex, ey), Color::rgb(1.0, 0.6, 0.2), 36, 120.0..260.0, 0.02..0.06);
-                    commands.entity(ee).insert(ToDespawn);
+                    if let Some(mut ecmd) = commands.get_entity(ee) { ecmd.despawn_recursive(); }
                     removed_enemies.insert(ee);
                     if !muted.0 { audio.explosion(); }
                 }
@@ -916,25 +1030,74 @@ fn collisions_and_damage(
         }
     }
 
-    // enemy bullets x player
-    if let Ok((pe, pt, pc, mut php)) = sets.p0().get_single_mut() {
+    // nave inimiga x nave do jogador (AABB)
+    let mut player_ram_damage: i32 = 0;
+    if let Ok((pt, pc)) = q_player_info.get_single() {
         let px = pt.translation().x;
         let py = pt.translation().y;
-        for (be, bx, by, bw, bh, dmg, _friendly) in bullets.iter().copied().filter(|b| !b.6) {
-            if removed_bullets.contains(&be) { continue; }
-            let dx = (bx - px).abs() - (bw / 2.0) - (pc.w / 2.0);
-            let dy = (by - py).abs() - (bh / 2.0) - (pc.h / 2.0);
+        for (ee, et, ec, mut eh, enemy) in sets.p0().iter_mut() {
+            if removed_enemies.contains(&ee) { continue; }
+            let ex = et.translation().x;
+            let ey = et.translation().y;
+            let dx = (px - ex).abs() - (pc.w / 2.0) - (ec.w / 2.0);
+            let dy = (py - ey).abs() - (pc.h / 2.0) - (ec.h / 2.0);
             if dx <= 0.0 && dy <= 0.0 {
-                php.hp -= dmg;
+                // dano recíproco moderado
+                let dmg_enemy = 3;
+                let dmg_player = 5;
+                eh.hp -= dmg_enemy;
+                player_ram_damage += dmg_player;
+                // efeitos
+                let cx = (px + ex) * 0.5; let cy = (py + ey) * 0.5;
+                emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(cx, cy), Color::rgb(1.0, 0.5, 0.2), 24, 120.0..200.0, 0.02..0.05);
+                shake.intensity = 3.0; shake.frames = 12;
+                if !muted.0 { audio.hit(); }
+                if eh.hp <= 0 {
+                    // explosão inimigo
+                    emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(ex, ey), Color::rgb(1.0, 0.6, 0.2), 36, 120.0..260.0, 0.02..0.06);
+                    if let Some(mut ecmd) = commands.get_entity(ee) { ecmd.despawn_recursive(); }
+                    removed_enemies.insert(ee);
+                    score.0 += match enemy.kind { EnemyKind::Basic => 5, EnemyKind::Meteor => 1, EnemyKind::Special => 20 };
+                    if !muted.0 { audio.explosion(); }
+                }
+                // não continue checando esse inimigo este frame
+            }
+        }
+    }
+    // aplica dano por "ram" no player
+    if player_ram_damage > 0 {
+        if let Ok((pe, mut php)) = q_player_health.get_single_mut() {
+            php.hp -= player_ram_damage;
+            if php.hp <= 0 {
+                if let Some(mut ecmd) = commands.get_entity(pe) { ecmd.despawn_recursive(); }
+            }
+        }
+    }
+
+    // enemy bullets x player (usar snapshot imutável do player)
+    if let Ok((pt, pc)) = q_player_info.get_single() {
+        let px = pt.translation().x;
+        let py = pt.translation().y;
+        for (be, bx, by, bw, bh, dmg, _friendly, vx, vy) in bullets.iter().copied().filter(|b| !b.6) {
+            if removed_bullets.contains(&be) { continue; }
+            let extra_w = vx.abs() * dt;
+            let extra_h = vy.abs() * dt;
+            let dx = (bx - px).abs() - (bw / 2.0 + extra_w) - (pc.w / 2.0);
+            let dy = (by - py).abs() - (bh / 2.0 + extra_h) - (pc.h / 2.0);
+            if dx <= 0.0 && dy <= 0.0 {
                 shake.intensity = 2.0;
                 shake.frames = 10;
                 // impacto visual no player
                 emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(px, py), Color::rgb(1.0, 0.2, 0.2), 18, 80.0..160.0, 0.015..0.04);
-                commands.entity(be).insert(ToDespawn);
+                if let Some(mut ecmd) = commands.get_entity(be) { ecmd.despawn_recursive(); }
                 removed_bullets.insert(be);
                 if !muted.0 { audio.hit(); }
-                if php.hp <= 0 {
-                    commands.entity(pe).insert(ToDespawn);
+                // aplica dano ao player
+                if let Ok((pe, mut php)) = q_player_health.get_single_mut() {
+                    php.hp -= dmg;
+                    if php.hp <= 0 {
+                        if let Some(mut ecmd) = commands.get_entity(pe) { ecmd.despawn_recursive(); }
+                    }
                 }
             }
         }
@@ -951,6 +1114,30 @@ fn engine_flame_pulse(time: Res<Time>, mut q: Query<(&mut EngineFlame, &Handle<C
                 mat.color = Color::rgba(1.8 * t, 0.9 * t, 0.4 * t, 0.9);
             }
         }
+    }
+}
+
+fn player_trail(
+    time: Res<Time>,
+    mut commands: Commands,
+    q_player: Query<(&Transform, &Charge), With<Player>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut last: Local<Option<Vec2>>,
+) {
+    if let Ok((t, charge)) = q_player.get_single() {
+        let pos = Vec2::new(t.translation.x, t.translation.y);
+        if let Some(prev) = *last {
+            let dp = pos - prev;
+            let dist = dp.length();
+            let speed = dist / time.delta_seconds().max(1e-3);
+            if speed > 30.0 {
+                let factor = (charge.value / charge.max).clamp(0.0, 1.0);
+                let base = Color::rgba(0.3 + 0.5 * factor, 0.6 + 0.3 * factor, 1.2, 1.0);
+                emit_burst(&mut commands, &mut meshes, &mut materials, pos, base, 2, 60.0..120.0, 0.01..0.03);
+            }
+        }
+        *last = Some(pos);
     }
 }
 
@@ -997,7 +1184,7 @@ fn update_particles(
     for (e, mut t, mut p, mat_h) in &mut q {
         p.life -= dt;
         if p.life <= 0.0 {
-            commands.entity(e).insert(ToDespawn);
+if let Some(mut ecmd) = commands.get_entity(e) { ecmd.insert(ToDespawn); }
             continue;
         }
         // update pos/vel
@@ -1183,6 +1370,7 @@ fn main() {
         // gameplay quando Running
         .add_systems(Update, (
             player_control,
+            player_trail,
             follow_laser_to_player,
             move_bullets,
             lifetime_cleanup,
@@ -1194,13 +1382,8 @@ fn main() {
             check_game_over,
             update_particles,
         ).run_if(run_if_running()))
-        // aplicar despawns no fim do Update
-        .add_systems(Update, commit_despawns)
         // restart quando GameOver
         .add_systems(Update, restart_on_click.run_if(in_state(GamePhase::GameOver)))
         .run();
 }
 
-fn commit_despawns(mut commands: Commands, q: Query<Entity, With<ToDespawn>>) {
-    for e in &q { commands.entity(e).despawn_recursive(); }
-}
