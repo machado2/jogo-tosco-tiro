@@ -176,6 +176,61 @@ fn mix_inplace(dst: &mut [f32], src: &[f32]) {
     for i in 0..n { dst[i] = (dst[i] + src[i]).clamp(-1.0, 1.0); }
 }
 
+#[derive(Clone, Copy)]
+enum EnemyType {
+    Scout,
+    Heavy,
+    Bomber,
+    Drone,
+}
+
+impl EnemyType {
+    fn health(&self) -> i32 {
+        match self {
+            EnemyType::Scout => 3,
+            EnemyType::Heavy => 12,
+            EnemyType::Bomber => 6,
+            EnemyType::Drone => 1,
+        }
+    }
+
+    fn speed(&self) -> f32 {
+        match self {
+            EnemyType::Scout => 1.5,
+            EnemyType::Heavy => 0.6,
+            EnemyType::Bomber => 1.0,
+            EnemyType::Drone => 1.2,
+        }
+    }
+
+    fn size(&self) -> Vec2 {
+        match self {
+            EnemyType::Scout => Vec2::new(12.0, 12.0),
+            EnemyType::Heavy => Vec2::new(24.0, 24.0),
+            EnemyType::Bomber => Vec2::new(16.0, 16.0),
+            EnemyType::Drone => Vec2::new(8.0, 8.0),
+        }
+    }
+
+    fn default_movement(&self) -> u8 {
+        match self {
+            EnemyType::Scout => 4,
+            EnemyType::Heavy => 0,
+            EnemyType::Bomber => 6,
+            EnemyType::Drone => 7,
+        }
+    }
+
+    fn color(&self) -> Color {
+        match self {
+            EnemyType::Scout => Color::rgb(0.5, 0.8, 1.0),
+            EnemyType::Heavy => Color::rgb(0.8, 0.2, 0.2),
+            EnemyType::Bomber => Color::rgb(0.9, 0.7, 0.3),
+            EnemyType::Drone => Color::rgb(0.6, 0.9, 0.6),
+        }
+    }
+}
+
 #[derive(Component)]
 struct Enemy {
     movement: u8,
@@ -184,6 +239,7 @@ struct Enemy {
     speed: f32,
     shoot_time: i32,
     kind: EnemyKind,
+    enemy_type: EnemyType,
 }
 
 #[derive(Clone, Copy)]
@@ -916,18 +972,51 @@ fn spawn_enemy(
     kind: EnemyKind,
 ) {
     let mut rng = thread_rng();
+    
+    let enemy_type = match kind {
+        EnemyKind::Basic => {
+            let roll = rng.gen_range(0..100);
+            if roll < 40 { EnemyType::Scout }
+            else if roll < 65 { EnemyType::Bomber }
+            else if roll < 85 { EnemyType::Heavy }
+            else { EnemyType::Drone }
+        },
+        EnemyKind::Meteor => EnemyType::Drone,
+        EnemyKind::Special => EnemyType::Heavy,
+    };
+    
     let x = rng.gen_range(-SCREEN_WIDTH/2.0 + 30.0..SCREEN_WIDTH/2.0 - 30.0);
-    let y = rng.gen_range(140.0..180.0); // perto do topo (mundo)
-    let (size, hp, color, speed) = match kind {
-        EnemyKind::Basic => (SIZE_ENEMY, ENEMY_HEALTH, Color::rgb(1.0, 0.3, 0.3), rng.gen_range(70.0..120.0)),
+    let y = rng.gen_range(140.0..180.0);
+    
+    let (size, hp, color, base_speed) = match kind {
+        EnemyKind::Basic => {
+            let size = enemy_type.size();
+            let hp = enemy_type.health();
+            let color = enemy_type.color();
+            let speed = enemy_type.speed();
+            (size, hp, color, speed * rng.gen_range(70.0..120.0))
+        },
         EnemyKind::Meteor => (SIZE_METEOR, 1, Color::rgb(0.7, 0.6, 0.4), rng.gen_range(80.0..160.0)),
         EnemyKind::Special => (Vec2::new(100.0, 20.0), 8, Color::rgb(0.6, 0.5, 0.5), rng.gen_range(40.0..70.0)),
     };
 
+    let movement = if matches!(kind, EnemyKind::Basic) {
+        enemy_type.default_movement()
+    } else {
+        rng.gen_range(0..8)
+    };
+
     let mut e = commands.spawn((
         SpatialBundle { transform: Transform::from_translation(Vec3::new(x, y, 9.0)), ..default() },
-        Enemy { movement: rng.gen_range(0..8), distance: rng.gen_range(20..70), phase: rng.gen_range(0.0..(std::f32::consts::TAU)), speed: speed / 100.0, shoot_time: rng.gen_range(20..120), kind },
-        // placeholder; ajusta após construir
+        Enemy { 
+            movement, 
+            distance: rng.gen_range(20..70), 
+            phase: rng.gen_range(0.0..(std::f32::consts::TAU)), 
+            speed: base_speed / 100.0, 
+            shoot_time: rng.gen_range(20..120), 
+            kind,
+            enemy_type,
+        },
         Collider { w: size.x, h: size.y },
         Health { hp, max: hp },
         Name::new("Enemy"),

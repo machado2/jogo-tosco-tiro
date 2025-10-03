@@ -2,29 +2,45 @@
 
 ## Commands
 
-- **Setup**: `cargo build`
-- **Build**: `cargo build --release`
-- **Lint**: `cargo clippy`
-- **Test**: `cargo test`
-- **Run**: `cargo run` (dev), `cargo run --release` (optimized)
+### Setup
+```bash
+cargo build
+```
+
+### Build
+```bash
+cargo build --release
+```
+
+### Lint
+```bash
+cargo clippy
+```
+
+### Test
+```bash
+cargo test
+```
+
+### Run Dev
+```bash
+cargo run
+```
 
 ## Tech Stack
-
-- **Language**: Rust (edition 2021)
-- **Game Engine**: Bevy 0.13 (ECS-based game engine)
-- **UI**: bevy_egui 0.26
-- **Audio**: rodio 0.17 (procedural sound generation)
-- **Build**: Cargo
+- **Language**: Rust (2021 edition)
+- **Game Engine**: Bevy 0.13 (ECS-based)
+- **UI**: bevy_egui
+- **Audio**: rodio (procedural audio generation)
+- **Graphics**: 2D sprite rendering with Bevy's MaterialMesh2dBundle
 
 ## Architecture
-
-- Single-file main.rs with ECS pattern
-- Systems: player control, enemy AI, collision detection, audio
-- Resources: Score, FrameCounter, EnemyPopulation, AudioEngine
-- Components: Player, Enemy, Laser, Meteor, etc.
+- Single-file architecture in `src/main.rs`
+- ECS pattern: Components, Systems, Resources
+- Procedurally generated graphics and audio
+- Multi-threaded audio engine using channels
 
 ## Code Style
-
-- Standard Rust formatting (use `cargo fmt`)
-- 4-space indentation
-- Portuguese comments/identifiers for legacy compatibility
+- Follow standard Rust conventions
+- Use Bevy's ECS patterns (Components, Resources, Systems)
+- Portuguese comments preserved in original code sections
