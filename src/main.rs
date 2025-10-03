@@ -184,6 +184,17 @@ struct Enemy {
     speed: f32,
     shoot_time: i32,
     kind: EnemyKind,
+    // Movimento circular (tipo 8)
+    circular_center: Vec2,
+    circular_radius: f32,
+    circular_angle: f32,
+    // Dash-retreat (tipo 9)
+    dash_timer: f32,
+    dash_cooldown: f32,
+    dash_state: u8, // 0=dash, 1=retreat, 2=cooldown
+    // Formation flying (tipos 10-12)
+    formation_anchor: Vec2,
+    formation_offset: Vec2,
 }
 
 #[derive(Clone, Copy)]
@@ -1065,7 +1076,22 @@ fn spawn_enemy(
     
     let mut e = commands.spawn((
         SpatialBundle { transform: Transform::from_translation(Vec3::new(x, y, 9.0)), ..default() },
-        Enemy { movement: rng.gen_range(0..8), distance: rng.gen_range(20..70), phase: rng.gen_range(0.0..(std::f32::consts::TAU)), speed: speed / 100.0, shoot_time: rng.gen_range(20..120), kind },
+        Enemy { 
+            movement: rng.gen_range(0..13), 
+            distance: rng.gen_range(20..70), 
+            phase: rng.gen_range(0.0..(std::f32::consts::TAU)), 
+            speed: speed / 100.0, 
+            shoot_time: rng.gen_range(20..120), 
+            kind,
+            circular_center: Vec2::new(x, y),
+            circular_radius: rng.gen_range(60.0..120.0),
+            circular_angle: rng.gen_range(0.0..(std::f32::consts::TAU)),
+            dash_timer: 0.0,
+            dash_cooldown: 0.0,
+            dash_state: 0,
+            formation_anchor: Vec2::new(x, y),
+            formation_offset: Vec2::new(rng.gen_range(-80.0..80.0), rng.gen_range(-60.0..60.0)),
+        },
         // placeholder; ajusta após construir
         Collider { w: size.x, h: size.y },
         Health { hp, max: hp },
@@ -1111,9 +1137,92 @@ fn enemy_behavior(
                     t.translation.x += (ang + std::f32::consts::FRAC_PI_2).cos() * 0.8;
                 }
             }
+            // Movimento circular (tipo 8)
+            8 => {
+                let angular_velocity = 2.0 * e.speed;
+                e.circular_angle += angular_velocity * time.delta_seconds();
+                t.translation.x = e.circular_center.x + e.circular_radius * e.circular_angle.cos();
+                t.translation.y = e.circular_center.y + e.circular_radius * e.circular_angle.sin();
+                e.circular_center.y -= 20.0 * e.speed * time.delta_seconds();
+            }
+            // Dash-retreat (tipo 9)
+            9 => {
+                if let Some(pt) = player_t {
+                    match e.dash_state {
+                        0 => {
+                            // Dash em direção ao jogador
+                            let dx = pt.x - t.translation.x;
+                            let dy = pt.y - t.translation.y;
+                            let dist = (dx * dx + dy * dy).sqrt().max(1.0);
+                            let speed_mult = 3.0;
+                            t.translation.x += (dx / dist) * 60.0 * e.speed * speed_mult * time.delta_seconds();
+                            t.translation.y += (dy / dist) * 60.0 * e.speed * speed_mult * time.delta_seconds();
+                            e.dash_timer += time.delta_seconds();
+                            if e.dash_timer >= 0.5 {
+                                e.dash_state = 1;
+                                e.dash_timer = 0.0;
+                            }
+                        }
+                        1 => {
+                            // Retreat (afasta do jogador)
+                            let dx = pt.x - t.translation.x;
+                            let dy = pt.y - t.translation.y;
+                            let dist = (dx * dx + dy * dy).sqrt().max(1.0);
+                            let speed_mult = 2.0;
+                            t.translation.x -= (dx / dist) * 60.0 * e.speed * speed_mult * time.delta_seconds();
+                            t.translation.y -= (dy / dist) * 60.0 * e.speed * speed_mult * time.delta_seconds();
+                            e.dash_timer += time.delta_seconds();
+                            if e.dash_timer >= 0.8 {
+                                e.dash_state = 2;
+                                e.dash_timer = 0.0;
+                                e.dash_cooldown = thread_rng().gen_range(0.3..0.8);
+                            }
+                        }
+                        _ => {
+                            // Cooldown (movimento lento lateral)
+                            e.phase += 0.08;
+                            t.translation.x += (e.phase).sin() * 1.2;
+                            t.translation.y -= 30.0 * e.speed * time.delta_seconds();
+                            e.dash_timer += time.delta_seconds();
+                            if e.dash_timer >= e.dash_cooldown {
+                                e.dash_state = 0;
+                                e.dash_timer = 0.0;
+                            }
+                        }
+                    }
+                } else {
+                    // Sem jogador, só desce
+                    t.translation.y -= 60.0 * e.speed * time.delta_seconds();
+                }
+            }
+            // Formation flying - Linha horizontal (tipo 10)
+            10 => {
+                e.formation_anchor.y -= 35.0 * e.speed * time.delta_seconds();
+                e.formation_anchor.x += (e.phase).sin() * 0.6;
+                e.phase += 0.05;
+                t.translation.x = e.formation_anchor.x + e.formation_offset.x;
+                t.translation.y = e.formation_anchor.y + e.formation_offset.y;
+            }
+            // Formation flying - V-shape (tipo 11)
+            11 => {
+                e.formation_anchor.y -= 40.0 * e.speed * time.delta_seconds();
+                let wave_offset = (e.phase).sin() * 0.5;
+                e.phase += 0.06;
+                t.translation.x = e.formation_anchor.x + e.formation_offset.x + wave_offset;
+                t.translation.y = e.formation_anchor.y + e.formation_offset.y.abs();
+            }
+            // Formation flying - Círculo (tipo 12)
+            12 => {
+                e.formation_anchor.y -= 30.0 * e.speed * time.delta_seconds();
+                e.phase += 1.5 * time.delta_seconds();
+                let formation_radius = 50.0;
+                let offset_angle = e.formation_offset.x / 100.0;
+                t.translation.x = e.formation_anchor.x + formation_radius * (e.phase + offset_angle).cos();
+                t.translation.y = e.formation_anchor.y + formation_radius * (e.phase + offset_angle).sin();
+            }
             _ => {}
         }
-        if e.distance > 0 { e.distance -= 1; } else { e.distance = thread_rng().gen_range(20..70); e.movement = thread_rng().gen_range(0..8); e.phase = 0.0; }
+        if e.distance > 0 { e.distance -= 1; } else { e.distance = thread_rng().gen_range(20..70); e.movement = thread_rng().gen_range(0..13); e.phase = 0.0; }
 
         // limites da tela (mantém mais dentro)
         if t.translation.y > SCREEN_HEIGHT/2.0 - 20.0 { e.movement = 0; e.distance = 10; }
