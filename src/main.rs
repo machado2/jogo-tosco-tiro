@@ -194,6 +194,23 @@ enum EnemyKind {
 }
 
 #[derive(Component)]
+struct Boss {
+    current_phase: usize,
+    phase_health_thresholds: Vec<f32>,
+    current_attack_pattern_index: usize,
+}
+
+#[derive(Component)]
+struct FiringPattern {
+    pattern_type: u8,
+}
+
+#[derive(Resource, Default)]
+struct BossSpawnedMilestones {
+    milestones: Vec<i32>,
+}
+
+#[derive(Component)]
 struct Bullet {
     friendly: bool,
     damage: i32,
@@ -537,6 +554,7 @@ fn setup(
     commands.insert_resource(Shake::default());
     commands.insert_resource(Muted(false));
     commands.insert_resource(AudioEngine::new());
+    commands.insert_resource(BossSpawnedMilestones::default());
 
     // starfield
     let mut rng = StdRng::seed_from_u64(42);
@@ -829,7 +847,28 @@ fn enemy_spawner(
     mut last_spawn_frame: Local<u64>,
     mut pop: ResMut<EnemyPopulation>,
     score: Res<Score>,
+    mut boss_milestones: ResMut<BossSpawnedMilestones>,
+    mut shake: ResMut<Shake>,
+    audio: Res<AudioEngine>,
+    muted: Res<Muted>,
 ) {
+    let boss_score_milestones = vec![1000, 2500, 5000, 7500, 10000];
+    
+    for milestone in &boss_score_milestones {
+        if score.0 >= *milestone && !boss_milestones.milestones.contains(milestone) {
+            spawn_boss(&mut commands, &mut meshes, &mut materials, *milestone);
+            boss_milestones.milestones.push(*milestone);
+            shake.intensity = 8.0;
+            shake.frames = 60;
+            emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(0.0, 150.0), Color::rgb(1.5, 0.2, 0.8), 80, 200.0..400.0, 0.04..0.1);
+            if !muted.0 {
+                audio.special();
+                audio.explosion();
+            }
+            return;
+        }
+    }
+    
     let mut rng = thread_rng();
     let mut possib = |offset: u64, prob: i32| -> bool {
         ((frames.0 + offset) % 180 == 0) && (rng.gen_range(0..100) < prob)
@@ -904,16 +943,66 @@ fn spawn_enemy(
     if let Some(b) = bounds { if let Some(mut ecmd) = commands.get_entity(eid) { ecmd.insert(Collider { w: b.width_units * size.x, h: b.height_units * size.y }); } }
 }
 
+fn spawn_boss(
+    commands: &mut Commands,
+    meshes: &mut Assets<bevy::render::mesh::Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    milestone: i32,
+) {
+    let x = 0.0;
+    let y = 150.0;
+    let size = Vec2::new(80.0, 60.0);
+    let base_hp = 100 + (milestone / 500) * 50;
+    let color = Color::rgb(1.2, 0.8, 0.2);
+    
+    let phase_thresholds = vec![0.75, 0.5, 0.25];
+    
+    let mut e = commands.spawn((
+        SpatialBundle { transform: Transform::from_translation(Vec3::new(x, y, 9.0)), ..default() },
+        Enemy { 
+            movement: 4, 
+            distance: 100, 
+            phase: 0.0, 
+            speed: 0.4, 
+            shoot_time: 60, 
+            kind: EnemyKind::Special 
+        },
+        Boss {
+            current_phase: 0,
+            phase_health_thresholds: phase_thresholds,
+            current_attack_pattern_index: 0,
+        },
+        FiringPattern { pattern_type: 0 },
+        Collider { w: size.x, h: size.y },
+        Health { hp: base_hp, max: base_hp },
+        Name::new("Boss"),
+    ));
+    
+    let eid = e.id();
+    let mut bounds: Option<ShipBounds> = None;
+    e.with_children(|c| {
+        let seed = milestone as u32;
+        let b = spawn_ship_visual(c, meshes, materials, size, seed, color);
+        bounds = Some(b);
+    });
+    drop(e);
+    if let Some(b) = bounds { 
+        if let Some(mut ecmd) = commands.get_entity(eid) { 
+            ecmd.insert(Collider { w: b.width_units * size.x, h: b.height_units * size.y }); 
+        } 
+    }
+}
+
 fn enemy_behavior(
     time: Res<Time>,
     mut commands: Commands,
-    mut q: Query<(Entity, &mut Transform, &mut Enemy, &Collider), Without<Player>>,
+    mut q: Query<(Entity, &mut Transform, &mut Enemy, &Collider, Option<&FiringPattern>), (Without<Player>, Without<Boss>)>,
     q_player: Query<&Transform, With<Player>>,
     mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let player_t = q_player.get_single().ok().map(|t| t.translation);
-    for (entity, mut t, mut e, col) in &mut q {
+    for (entity, mut t, mut e, col, _firing) in &mut q {
         let old = t.translation;
         // movimento
         match e.movement {
@@ -964,6 +1053,144 @@ fn enemy_behavior(
 
         // leve "bank" visual: aqui omitimos, pois não rotacionamos mesh infantil
         let _vx = t.translation.x - old.x; let _vy = t.translation.y - old.y; let _ = (_vx, _vy);
+    }
+}
+
+fn boss_behavior(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q_boss: Query<(Entity, &mut Transform, &mut Enemy, &mut Boss, &mut FiringPattern, &Health, &Collider), With<Boss>>,
+    q_player: Query<&Transform, With<Player>>,
+    mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut shake: ResMut<Shake>,
+    audio: Res<AudioEngine>,
+    muted: Res<Muted>,
+) {
+    let player_t = q_player.get_single().ok().map(|t| t.translation);
+    
+    for (entity, mut t, mut e, mut boss, mut firing, health, col) in &mut q_boss {
+        let health_percent = health.hp as f32 / health.max as f32;
+        
+        let mut phase_changed = false;
+        if boss.current_phase < boss.phase_health_thresholds.len() {
+            if health_percent <= boss.phase_health_thresholds[boss.current_phase] {
+                boss.current_phase += 1;
+                boss.current_attack_pattern_index = (boss.current_attack_pattern_index + 1) % 4;
+                firing.pattern_type = boss.current_attack_pattern_index as u8;
+                phase_changed = true;
+                
+                shake.intensity = 6.0;
+                shake.frames = 40;
+                emit_burst(&mut commands, &mut meshes, &mut materials, 
+                    Vec2::new(t.translation.x, t.translation.y), 
+                    Color::rgb(1.5, 0.5, 1.0), 
+                    60, 
+                    150.0..350.0, 
+                    0.03..0.08
+                );
+                if !muted.0 {
+                    audio.explosion();
+                }
+            }
+        }
+        
+        let phase_speed_multiplier = 1.0 + (boss.current_phase as f32 * 0.3);
+        match boss.current_attack_pattern_index {
+            0 => {
+                e.phase += 0.08 * phase_speed_multiplier;
+                t.translation.x = (e.phase).sin() * 180.0;
+                t.translation.y = t.translation.y.max(100.0).min(180.0);
+                e.movement = 4;
+            }
+            1 => {
+                e.phase += 0.12 * phase_speed_multiplier;
+                t.translation.x = (e.phase).cos() * 140.0;
+                t.translation.y = 120.0 + (e.phase * 1.5).sin() * 40.0;
+                e.movement = 6;
+            }
+            2 => {
+                if let Some(pt) = player_t {
+                    let dx = pt.x - t.translation.x;
+                    let dy = pt.y - t.translation.y;
+                    let ang = dy.atan2(dx);
+                    t.translation.x += ang.cos() * 40.0 * phase_speed_multiplier * time.delta_seconds();
+                    t.translation.y += ang.sin() * 40.0 * phase_speed_multiplier * time.delta_seconds();
+                }
+                e.movement = 7;
+            }
+            _ => {
+                e.phase += 0.15 * phase_speed_multiplier;
+                t.translation.x = (e.phase * 2.0).sin() * 200.0;
+                t.translation.y = 140.0;
+                e.movement = 4;
+            }
+        }
+        
+        t.translation.x = t.translation.x.clamp(-SCREEN_WIDTH/2.0 + 50.0, SCREEN_WIDTH/2.0 - 50.0);
+        t.translation.y = t.translation.y.clamp(80.0, SCREEN_HEIGHT/2.0 - 50.0);
+        
+        if e.shoot_time <= 0 {
+            let shots_per_phase = 2 + boss.current_phase * 2;
+            let bx = t.translation.x;
+            let by = t.translation.y - col.h / 2.0;
+            
+            match firing.pattern_type {
+                0 => {
+                    for i in 0..shots_per_phase {
+                        let offset = (i as f32 - shots_per_phase as f32 / 2.0) * 15.0;
+                        spawn_missile(&mut commands, &mut meshes, &mut materials, 
+                            Vec2::new(bx + offset, by - 10.0), 
+                            Vec2::new(0.0, -220.0), 
+                            false
+                        );
+                    }
+                }
+                1 => {
+                    for i in 0..shots_per_phase {
+                        let angle = (i as f32 / shots_per_phase as f32) * std::f32::consts::PI - std::f32::consts::FRAC_PI_2;
+                        let vel = Vec2::new(angle.cos() * 180.0, angle.sin() * 180.0 - 100.0);
+                        spawn_missile(&mut commands, &mut meshes, &mut materials, 
+                            Vec2::new(bx, by - 10.0), 
+                            vel, 
+                            false
+                        );
+                    }
+                }
+                2 => {
+                    if let Some(pt) = player_t {
+                        for i in 0..shots_per_phase {
+                            let dx = pt.x - bx;
+                            let dy = pt.y - by;
+                            let base_angle = dy.atan2(dx);
+                            let spread = (i as f32 - shots_per_phase as f32 / 2.0) * 0.15;
+                            let angle = base_angle + spread;
+                            let vel = Vec2::new(angle.cos() * 200.0, angle.sin() * 200.0);
+                            spawn_missile(&mut commands, &mut meshes, &mut materials, 
+                                Vec2::new(bx, by - 10.0), 
+                                vel, 
+                                false
+                            );
+                        }
+                    }
+                }
+                _ => {
+                    for i in 0..(shots_per_phase * 2) {
+                        let angle = (i as f32 / (shots_per_phase * 2) as f32) * std::f32::consts::TAU;
+                        let vel = Vec2::new(angle.cos() * 150.0, angle.sin() * 150.0);
+                        spawn_missile(&mut commands, &mut meshes, &mut materials, 
+                            Vec2::new(bx, by), 
+                            vel, 
+                            false
+                        );
+                    }
+                }
+            }
+            
+            e.shoot_time = (80 - (boss.current_phase as i32) * 15).max(20);
+        } else {
+            e.shoot_time -= 1;
+        }
     }
 }
 
@@ -1376,6 +1603,7 @@ fn main() {
             lifetime_cleanup,
             enemy_spawner,
             enemy_behavior,
+            boss_behavior,
             collisions_and_damage,
             engine_flame_pulse,
             camera_shake,
