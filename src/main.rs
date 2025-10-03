@@ -263,6 +263,30 @@ struct Particle2D {
 }
 
 #[derive(Component)]
+struct FlashEffect {
+    timer: Timer,
+}
+
+#[derive(Component)]
+struct DamageVignette {
+    timer: Timer,
+    intensity: f32,
+}
+
+#[derive(Component)]
+struct Trail {
+    positions: Vec<Vec2>,
+    max_length: usize,
+    color: Color,
+}
+
+#[derive(Component)]
+struct TrailSegment {
+    index: usize,
+    parent_entity: Entity,
+}
+
+#[derive(Component)]
 struct ToDespawn;
 
 #[derive(Component)]
@@ -616,6 +640,7 @@ let base_mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), .
         // placeholder collider; ajustaremos após construir a nave
         Collider { w: SIZE_PLAYER.x, h: SIZE_PLAYER.y },
         Health { hp: MAX_HEALTH, max: MAX_HEALTH },
+        Trail { positions: Vec::new(), max_length: 15, color: Color::rgb(0.3, 0.6, 1.5) },
         Charge { value: MAX_CHARGE, max: MAX_CHARGE },
         Name::new("Player"),
     ));
@@ -1032,12 +1057,19 @@ fn spawn_enemy(
         EnemyKind::Special => (Vec2::new(100.0, 20.0), 8, Color::rgb(0.6, 0.5, 0.5), rng.gen_range(40.0..70.0)),
     };
 
+    let trail_color = match kind {
+        EnemyKind::Basic => Color::rgb(1.2, 0.3, 0.3),
+        EnemyKind::Meteor => Color::rgb(0.8, 0.6, 0.4),
+        EnemyKind::Special => Color::rgb(0.8, 0.5, 0.8),
+    };
+    
     let mut e = commands.spawn((
         SpatialBundle { transform: Transform::from_translation(Vec3::new(x, y, 9.0)), ..default() },
         Enemy { movement: rng.gen_range(0..8), distance: rng.gen_range(20..70), phase: rng.gen_range(0.0..(std::f32::consts::TAU)), speed: speed / 100.0, shoot_time: rng.gen_range(20..120), kind },
         // placeholder; ajusta após construir
         Collider { w: size.x, h: size.y },
         Health { hp, max: hp },
+        Trail { positions: Vec::new(), max_length: 10, color: trail_color },
         Name::new("Enemy"),
     ));
     let eid = e.id();
@@ -1164,13 +1196,16 @@ fn collisions_and_damage(
                     let (intensity, frames) = if matches!(enemy.kind, EnemyKind::Special) { (3.0, 24) } else { (1.5, 8) };
                     shake.intensity = intensity;
                     shake.frames = frames;
-                    // partículas de explosão
+                    // Enhanced enemy destruction particles
                     let ex = ex;
                     let ey = ey;
-                    emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(ex, ey), Color::rgb(1.0, 0.6, 0.2), 36, 120.0..260.0, 0.02..0.06);
+                    emit_enemy_destruction_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(ex, ey));
                     if let Some(mut ecmd) = commands.get_entity(ee) { ecmd.despawn_recursive(); }
                     removed_enemies.insert(ee);
                     if !muted.0 { audio.explosion(); }
+                } else {
+                    // Bullet impact particles
+                    emit_bullet_impact_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(bx, by), true);
                 }
                 break;
             }
@@ -1200,8 +1235,8 @@ fn collisions_and_damage(
                 shake.intensity = 3.0; shake.frames = 12;
                 if !muted.0 { audio.hit(); }
                 if eh.hp <= 0 {
-                    // explosão inimigo
-                    emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(ex, ey), Color::rgb(1.0, 0.6, 0.2), 36, 120.0..260.0, 0.02..0.06);
+                    // Enhanced enemy explosion
+                    emit_enemy_destruction_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(ex, ey));
                     if let Some(mut ecmd) = commands.get_entity(ee) { ecmd.despawn_recursive(); }
                     removed_enemies.insert(ee);
                     score.0 += match enemy.kind { EnemyKind::Basic => 5, EnemyKind::Meteor => 1, EnemyKind::Special => 20 };
@@ -1234,11 +1269,26 @@ fn collisions_and_damage(
             if dx <= 0.0 && dy <= 0.0 {
                 shake.intensity = 2.0;
                 shake.frames = 10;
-                // impacto visual no player
-                emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(px, py), Color::rgb(1.0, 0.2, 0.2), 18, 80.0..160.0, 0.015..0.04);
+                // Bullet impact on player
+                emit_bullet_impact_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(px, py), false);
                 if let Some(mut ecmd) = commands.get_entity(be) { ecmd.despawn_recursive(); }
                 removed_bullets.insert(be);
                 if !muted.0 { audio.hit(); }
+                
+                // Spawn damage vignette
+                let mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() }));
+                let mat = materials.add(ColorMaterial { color: Color::rgba(1.0, 0.0, 0.0, 0.5), ..default() });
+                commands.spawn((
+                    MaterialMesh2dBundle {
+                        mesh: Mesh2dHandle(mesh),
+                        material: mat,
+                        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 100.0))
+                            .with_scale(Vec3::new(SCREEN_WIDTH * 1.2, SCREEN_HEIGHT * 1.2, 1.0)),
+                        ..default()
+                    },
+                    DamageVignette { timer: Timer::from_seconds(0.6, TimerMode::Once), intensity: 0.5 },
+                ));
+                
                 // aplica dano ao player
                 if let Ok((pe, mut php)) = q_player_health.get_single_mut() {
                     php.hp -= dmg;
@@ -1288,7 +1338,75 @@ fn player_trail(
     }
 }
 
-// Partículas 2D simples
+fn update_trails(
+    mut commands: Commands,
+    mut q: Query<(Entity, &GlobalTransform, &mut Trail)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    q_segments: Query<Entity, With<TrailSegment>>,
+) {
+    // Clean up old trail segments
+    for seg_entity in q_segments.iter() {
+        if let Some(mut ecmd) = commands.get_entity(seg_entity) {
+            ecmd.despawn_recursive();
+        }
+    }
+    
+    for (entity, transform, mut trail) in q.iter_mut() {
+        let current_pos = Vec2::new(transform.translation().x, transform.translation().y);
+        
+        // Add current position to trail
+        trail.positions.push(current_pos);
+        
+        // Keep trail at max length
+        if trail.positions.len() > trail.max_length {
+            trail.positions.remove(0);
+        }
+        
+        // Render trail segments with gradient
+        let len = trail.positions.len();
+        if len >= 2 {
+            for i in 0..(len - 1) {
+                let progress = i as f32 / len.max(1) as f32;
+                let alpha = progress * 0.6;
+                let scale_factor = 0.3 + progress * 0.7;
+                
+                let start = trail.positions[i];
+                let end = trail.positions[i + 1];
+                let mid = (start + end) * 0.5;
+                let delta = end - start;
+                let length = delta.length();
+                
+                if length > 0.1 {
+                    let angle = delta.y.atan2(delta.x);
+                    
+                    let mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(length * 0.5, 1.5), ..Default::default() }));
+                    let color = Color::rgba(
+                        trail.color.r() * (0.3 + progress * 0.7),
+                        trail.color.g() * (0.3 + progress * 0.7),
+                        trail.color.b() * (0.3 + progress * 0.7),
+                        alpha,
+                    );
+                    let mat = materials.add(ColorMaterial { color, ..default() });
+                    
+                    commands.spawn((
+                        MaterialMesh2dBundle {
+                            mesh: Mesh2dHandle(mesh),
+                            material: mat,
+                            transform: Transform::from_translation(Vec3::new(mid.x, mid.y, 3.0))
+                                .with_rotation(Quat::from_rotation_z(angle))
+                                .with_scale(Vec3::new(1.0, scale_factor, 1.0)),
+                            ..default()
+                        },
+                        TrailSegment { index: i, parent_entity: entity },
+                    ));
+                }
+            }
+        }
+    }
+}
+
+// Partículas 2D simples - enhanced with varied burst patterns
 fn emit_burst(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -1319,6 +1437,102 @@ fn emit_burst(
             Particle2D { vel: Vec2::new(vx, vy), life, total: life, start: color * 1.2, end: Color::rgba(0.0, 0.0, 0.0, 0.0), spin: rng.gen_range(-6.0..6.0) },
         ));
     }
+}
+
+// Enhanced burst for enemy destruction
+fn emit_enemy_destruction_burst(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    pos: Vec2,
+) {
+    let mut rng = rand::thread_rng();
+    // Large bright particles
+    for _ in 0..25 {
+        let ang = rng.gen::<f32>() * std::f32::consts::TAU;
+        let spd = rng.gen_range(180.0..320.0);
+        let vx = ang.cos() * spd;
+        let vy = ang.sin() * spd;
+        let sz = rng.gen_range(0.04..0.08);
+        let life = rng.gen_range(0.5..0.8);
+        let mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() }));
+        let color = Color::rgb(1.0, 0.6, 0.2);
+        let mat = materials.add(ColorMaterial { color: Color::rgba(color.r() * 2.0, color.g() * 2.0, color.b() * 1.8, 1.0), ..default() });
+        commands.spawn((
+            MaterialMesh2dBundle {
+                mesh: Mesh2dHandle(mesh),
+                material: mat,
+                transform: Transform::from_translation(Vec3::new(pos.x, pos.y, 7.0)).with_scale(Vec3::splat(sz)),
+                ..default()
+            },
+            Particle2D { vel: Vec2::new(vx, vy), life, total: life, start: color * 1.5, end: Color::rgba(0.2, 0.0, 0.0, 0.0), spin: rng.gen_range(-8.0..8.0) },
+        ));
+    }
+    // Fast small sparks
+    for _ in 0..20 {
+        let ang = rng.gen::<f32>() * std::f32::consts::TAU;
+        let spd = rng.gen_range(300.0..450.0);
+        let vx = ang.cos() * spd;
+        let vy = ang.sin() * spd;
+        let sz = rng.gen_range(0.015..0.03);
+        let life = rng.gen_range(0.2..0.4);
+        let mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() }));
+        let color = Color::rgb(1.0, 0.9, 0.3);
+        let mat = materials.add(ColorMaterial { color: Color::rgba(2.0, 2.0, 1.0, 1.0), ..default() });
+        commands.spawn((
+            MaterialMesh2dBundle {
+                mesh: Mesh2dHandle(mesh),
+                material: mat,
+                transform: Transform::from_translation(Vec3::new(pos.x, pos.y, 7.5)).with_scale(Vec3::splat(sz)),
+                ..default()
+            },
+            Particle2D { vel: Vec2::new(vx, vy), life, total: life, start: color * 1.8, end: Color::rgba(0.0, 0.0, 0.0, 0.0), spin: rng.gen_range(-12.0..12.0) },
+        ));
+    }
+}
+
+// Burst for bullet impacts
+fn emit_bullet_impact_burst(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    pos: Vec2,
+    friendly: bool,
+) {
+    let mut rng = rand::thread_rng();
+    let base_color = if friendly { Color::rgb(0.5, 0.9, 1.0) } else { Color::rgb(1.0, 0.3, 0.3) };
+    for _ in 0..12 {
+        let ang = rng.gen::<f32>() * std::f32::consts::TAU;
+        let spd = rng.gen_range(80.0..180.0);
+        let vx = ang.cos() * spd;
+        let vy = ang.sin() * spd;
+        let sz = rng.gen_range(0.015..0.035);
+        let life = rng.gen_range(0.15..0.35);
+        let mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() }));
+        let mat = materials.add(ColorMaterial { color: Color::rgba(base_color.r() * 1.5, base_color.g() * 1.5, base_color.b() * 1.5, 0.9), ..default() });
+        commands.spawn((
+            MaterialMesh2dBundle {
+                mesh: Mesh2dHandle(mesh),
+                material: mat,
+                transform: Transform::from_translation(Vec3::new(pos.x, pos.y, 7.0)).with_scale(Vec3::splat(sz)),
+                ..default()
+            },
+            Particle2D { vel: Vec2::new(vx, vy), life, total: life, start: base_color * 1.3, end: Color::rgba(0.0, 0.0, 0.0, 0.0), spin: rng.gen_range(-10.0..10.0) },
+        ));
+    }
+    
+    // Flash effect on bullet impact
+    let mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() }));
+    let mat = materials.add(ColorMaterial { color: Color::rgba(3.0, 3.0, 3.0, 1.0), ..default() });
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: Mesh2dHandle(mesh),
+            material: mat,
+            transform: Transform::from_translation(Vec3::new(pos.x, pos.y, 8.0)).with_scale(Vec3::splat(0.12)),
+            ..default()
+        },
+        FlashEffect { timer: Timer::from_seconds(0.08, TimerMode::Once) },
+    ));
 }
 
 fn update_particles(
@@ -1352,6 +1566,48 @@ if let Some(mut ecmd) = commands.get_entity(e) { ecmd.insert(ToDespawn); }
                 (1.0 - k) * 0.9,
             );
             m.color = c;
+        }
+    }
+}
+
+fn update_flash_effects(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut FlashEffect, &Handle<ColorMaterial>)>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    for (e, mut flash, mat_h) in &mut q {
+        flash.timer.tick(time.delta());
+        let progress = flash.timer.fraction();
+        let alpha = 1.0 - progress;
+        
+        if let Some(mat) = materials.get_mut(mat_h) {
+            mat.color = Color::rgba(3.0 * alpha, 3.0 * alpha, 3.0 * alpha, alpha);
+        }
+        
+        if flash.timer.finished() {
+            if let Some(mut ecmd) = commands.get_entity(e) { ecmd.despawn_recursive(); }
+        }
+    }
+}
+
+fn update_damage_vignette(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut DamageVignette, &Handle<ColorMaterial>)>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    for (e, mut vignette, mat_h) in &mut q {
+        vignette.timer.tick(time.delta());
+        let progress = vignette.timer.fraction();
+        let alpha = vignette.intensity * (1.0 - progress);
+        
+        if let Some(mat) = materials.get_mut(mat_h) {
+            mat.color = Color::rgba(1.0, 0.0, 0.0, alpha);
+        }
+        
+        if vignette.timer.finished() {
+            if let Some(mut ecmd) = commands.get_entity(e) { ecmd.despawn_recursive(); }
         }
     }
 }
@@ -1478,9 +1734,48 @@ fn progress_bar(ui: &mut egui::Ui, label: &str, frac: f32, color: egui::Color32)
     let frac = frac.clamp(0.0, 1.0);
     ui.label(label);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(220.0, 18.0), egui::Sense::hover());
+    
+    // Background with subtle border
     ui.painter().rect_filled(rect, 3.0, egui::Color32::from_black_alpha(64));
+    ui.painter().rect_stroke(rect, 3.0, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(30)));
+    
     let fill = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * frac, rect.height()));
-    ui.painter().rect_filled(fill, 3.0, color);
+    
+    // Enhanced health bar with color transitions
+    if label == "Health" {
+        let bar_color = if frac > 0.6 {
+            egui::Color32::from_rgb(64, 255, 64) // Green
+        } else if frac > 0.3 {
+            egui::Color32::from_rgb(255, 255, 64) // Yellow
+        } else {
+            egui::Color32::from_rgb(255, 64, 64) // Red
+        };
+        
+        ui.painter().rect_filled(fill, 3.0, bar_color);
+        
+        // Glowing border for health bar
+        let glow_alpha = (30.0 + (ui.ctx().input(|i| i.time) * 3.0).sin() * 15.0) as u8;
+        ui.painter().rect_stroke(fill, 3.0, egui::Stroke::new(2.0, egui::Color32::from_rgb(bar_color.r(), bar_color.g(), bar_color.b()).linear_multiply(1.2).gamma_multiply(1.3)));
+    } else if label == "Charge" {
+        ui.painter().rect_filled(fill, 3.0, color);
+        
+        // Glowing edge and pulsing animation when full
+        if frac >= 0.99 {
+            let pulse = (ui.ctx().input(|i| i.time) * 5.0).sin() * 0.3 + 0.7;
+            let glow_color = egui::Color32::from_rgb(
+                (128.0 + 127.0 * pulse) as u8,
+                (200.0 + 55.0 * pulse) as u8,
+                255,
+            );
+            ui.painter().rect_stroke(fill, 3.0, egui::Stroke::new(3.0, glow_color));
+            
+            // Inner glow
+            let inner_rect = fill.shrink(2.0);
+            ui.painter().rect_stroke(inner_rect, 2.0, egui::Stroke::new(1.5, egui::Color32::from_rgb(200, 230, 255)));
+        }
+    } else {
+        ui.painter().rect_filled(fill, 3.0, color);
+    }
 }
 
 fn run_if_running() -> impl FnMut(Option<Res<State<GamePhase>>>) -> bool + Clone {
@@ -1528,6 +1823,9 @@ fn main() {
             camera_shake,
             check_game_over,
             update_particles,
+            update_flash_effects,
+            update_damage_vignette,
+            update_trails,
         ).run_if(run_if_running()))
         // restart quando GameOver
         .add_systems(Update, restart_on_click.run_if(in_state(GamePhase::GameOver)))
