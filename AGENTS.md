@@ -1,46 +1,30 @@
-# AGENTS.md
+# Agent Context
 
 ## Commands
 
-### Setup
-```bash
-cargo build
-```
-
-### Build
-```bash
-cargo build --release
-```
-
-### Lint
-```bash
-cargo clippy
-```
-
-### Test
-```bash
-cargo test
-```
-
-### Run Dev
-```bash
-cargo run
-```
+- **Setup**: `cargo build` (installs dependencies automatically)
+- **Build**: `cargo build --release`
+- **Lint**: `cargo clippy`
+- **Test**: `cargo test`
+- **Dev Server**: `cargo run`
 
 ## Tech Stack
-- **Language**: Rust (2021 edition)
-- **Game Engine**: Bevy 0.13 (ECS-based)
-- **UI**: bevy_egui
-- **Audio**: rodio (procedural audio generation)
-- **Graphics**: 2D sprite rendering with Bevy's MaterialMesh2dBundle
 
-## Architecture
-- Single-file architecture in `src/main.rs`
-- ECS pattern: Components, Systems, Resources
-- Procedurally generated graphics and audio
-- Multi-threaded audio engine using channels
+- **Language**: Rust 2021 edition
+- **Game Engine**: Bevy 0.13 (ECS architecture)
+- **UI**: bevy_egui
+- **Audio**: rodio (procedural synthesis on separate thread)
+- **Graphics**: 2D sprites with procedural meshes and bloom effects
+
+## Repo Structure
+
+- `src/main.rs`: Single-file game implementation with ECS components and systems
+- `assets/`: Game assets (sprites, audio)
+- `Cargo.toml`: Dependencies and build profiles
 
 ## Code Style
-- Follow standard Rust conventions
-- Use Bevy's ECS patterns (Components, Resources, Systems)
-- Portuguese comments preserved in original code sections
+
+- Standard Rust conventions with snake_case
+- Inline procedural audio synthesis functions
+- Game uses Bevy's ECS: Resources for global state, Components for entity data, Systems for logic
+- Portuguese comments in original code preserved

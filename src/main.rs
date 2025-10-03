@@ -176,61 +176,6 @@ fn mix_inplace(dst: &mut [f32], src: &[f32]) {
     for i in 0..n { dst[i] = (dst[i] + src[i]).clamp(-1.0, 1.0); }
 }
 
-#[derive(Clone, Copy)]
-enum EnemyType {
-    Scout,
-    Heavy,
-    Bomber,
-    Drone,
-}
-
-impl EnemyType {
-    fn health(&self) -> i32 {
-        match self {
-            EnemyType::Scout => 3,
-            EnemyType::Heavy => 12,
-            EnemyType::Bomber => 6,
-            EnemyType::Drone => 1,
-        }
-    }
-
-    fn speed(&self) -> f32 {
-        match self {
-            EnemyType::Scout => 1.5,
-            EnemyType::Heavy => 0.6,
-            EnemyType::Bomber => 1.0,
-            EnemyType::Drone => 1.2,
-        }
-    }
-
-    fn size(&self) -> Vec2 {
-        match self {
-            EnemyType::Scout => Vec2::new(12.0, 12.0),
-            EnemyType::Heavy => Vec2::new(24.0, 24.0),
-            EnemyType::Bomber => Vec2::new(16.0, 16.0),
-            EnemyType::Drone => Vec2::new(8.0, 8.0),
-        }
-    }
-
-    fn default_movement(&self) -> u8 {
-        match self {
-            EnemyType::Scout => 4,
-            EnemyType::Heavy => 0,
-            EnemyType::Bomber => 6,
-            EnemyType::Drone => 7,
-        }
-    }
-
-    fn color(&self) -> Color {
-        match self {
-            EnemyType::Scout => Color::rgb(0.5, 0.8, 1.0),
-            EnemyType::Heavy => Color::rgb(0.8, 0.2, 0.2),
-            EnemyType::Bomber => Color::rgb(0.9, 0.7, 0.3),
-            EnemyType::Drone => Color::rgb(0.6, 0.9, 0.6),
-        }
-    }
-}
-
 #[derive(Component)]
 struct Enemy {
     movement: u8,
@@ -239,7 +184,6 @@ struct Enemy {
     speed: f32,
     shoot_time: i32,
     kind: EnemyKind,
-    enemy_type: EnemyType,
 }
 
 #[derive(Clone, Copy)]
@@ -249,21 +193,31 @@ enum EnemyKind {
     Special,
 }
 
-#[derive(Component)]
-struct Boss {
-    current_phase: usize,
-    phase_health_thresholds: Vec<f32>,
-    current_attack_pattern_index: usize,
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum EnemyType {
+    Scout,
+    Heavy,
+    Bomber,
+    Drone,
 }
 
-#[derive(Component)]
-struct FiringPattern {
-    pattern_type: u8,
+#[derive(Clone)]
+struct WaveConfig {
+    scout_count: u32,
+    heavy_count: u32,
+    bomber_count: u32,
+    drone_count: u32,
+    spawn_interval: f32,
+    score_threshold: i32,
 }
 
-#[derive(Resource, Default)]
-struct BossSpawnedMilestones {
-    milestones: Vec<i32>,
+#[derive(Resource)]
+struct WaveManager {
+    current_wave: usize,
+    enemies_remaining: u32,
+    wave_timer: f32,
+    wave_configs: Vec<WaveConfig>,
+    enemies_spawned_this_wave: u32,
 }
 
 #[derive(Component)]
@@ -610,7 +564,24 @@ fn setup(
     commands.insert_resource(Shake::default());
     commands.insert_resource(Muted(false));
     commands.insert_resource(AudioEngine::new());
-    commands.insert_resource(BossSpawnedMilestones::default());
+    
+    // wave manager com configurações de ondas
+    let wave_configs = vec![
+        WaveConfig { scout_count: 3, heavy_count: 0, bomber_count: 0, drone_count: 0, spawn_interval: 2.0, score_threshold: 0 },
+        WaveConfig { scout_count: 5, heavy_count: 1, bomber_count: 0, drone_count: 0, spawn_interval: 1.8, score_threshold: 50 },
+        WaveConfig { scout_count: 4, heavy_count: 2, bomber_count: 1, drone_count: 0, spawn_interval: 1.5, score_threshold: 150 },
+        WaveConfig { scout_count: 6, heavy_count: 2, bomber_count: 2, drone_count: 1, spawn_interval: 1.3, score_threshold: 300 },
+        WaveConfig { scout_count: 8, heavy_count: 3, bomber_count: 2, drone_count: 2, spawn_interval: 1.0, score_threshold: 500 },
+        WaveConfig { scout_count: 10, heavy_count: 4, bomber_count: 3, drone_count: 3, spawn_interval: 0.8, score_threshold: 750 },
+        WaveConfig { scout_count: 12, heavy_count: 5, bomber_count: 4, drone_count: 4, spawn_interval: 0.6, score_threshold: 1000 },
+    ];
+    commands.insert_resource(WaveManager {
+        current_wave: 0,
+        enemies_remaining: 0,
+        wave_timer: 0.0,
+        wave_configs,
+        enemies_spawned_this_wave: 0,
+    });
 
     // starfield
     let mut rng = StdRng::seed_from_u64(42);
@@ -899,70 +870,151 @@ fn enemy_spawner(
     mut commands: Commands,
     mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    frames: Res<FrameCounter>,
-    mut last_spawn_frame: Local<u64>,
-    mut pop: ResMut<EnemyPopulation>,
+    time: Res<Time>,
+    mut wave_manager: ResMut<WaveManager>,
     score: Res<Score>,
-    mut boss_milestones: ResMut<BossSpawnedMilestones>,
-    mut shake: ResMut<Shake>,
-    audio: Res<AudioEngine>,
-    muted: Res<Muted>,
+    enemy_query: Query<&Enemy>,
 ) {
-    let boss_score_milestones = vec![1000, 2500, 5000, 7500, 10000];
-    
-    for milestone in &boss_score_milestones {
-        if score.0 >= *milestone && !boss_milestones.milestones.contains(milestone) {
-            spawn_boss(&mut commands, &mut meshes, &mut materials, *milestone);
-            boss_milestones.milestones.push(*milestone);
-            shake.intensity = 8.0;
-            shake.frames = 60;
-            emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(0.0, 150.0), Color::rgb(1.5, 0.2, 0.8), 80, 200.0..400.0, 0.04..0.1);
-            if !muted.0 {
-                audio.special();
-                audio.explosion();
+    // conta inimigos ativos
+    let active_enemies = enemy_query.iter().count() as u32;
+    wave_manager.enemies_remaining = active_enemies;
+
+    // verifica se onda atual foi completada
+    if wave_manager.enemies_remaining == 0 && wave_manager.enemies_spawned_this_wave > 0 {
+        // verifica se podemos avançar para próxima onda
+        if wave_manager.current_wave + 1 < wave_manager.wave_configs.len() {
+            let next_wave = &wave_manager.wave_configs[wave_manager.current_wave + 1];
+            if score.0 >= next_wave.score_threshold {
+                wave_manager.current_wave += 1;
+                wave_manager.enemies_spawned_this_wave = 0;
+                wave_manager.wave_timer = 0.0;
             }
-            return;
         }
     }
+
+    // verifica se há uma onda atual válida
+    if wave_manager.current_wave >= wave_manager.wave_configs.len() {
+        return;
+    }
+
+    let current_config = &wave_manager.wave_configs[wave_manager.current_wave].clone();
     
+    // calcula total de inimigos a spawnar nesta onda
+    let total_enemies = current_config.scout_count + current_config.heavy_count + 
+                       current_config.bomber_count + current_config.drone_count;
+    
+    // se já spawnou todos os inimigos desta onda, espera terminarem
+    if wave_manager.enemies_spawned_this_wave >= total_enemies {
+        return;
+    }
+
+    // atualiza timer
+    wave_manager.wave_timer += time.delta_seconds();
+    
+    // verifica se é hora de spawnar próximo inimigo
+    if wave_manager.wave_timer >= current_config.spawn_interval {
+        wave_manager.wave_timer = 0.0;
+        
+        // determina qual tipo spawnar baseado no que resta
+        let scouts_spawned = wave_manager.enemies_spawned_this_wave.min(current_config.scout_count);
+        let heavies_spawned = (wave_manager.enemies_spawned_this_wave.saturating_sub(current_config.scout_count))
+            .min(current_config.heavy_count);
+        let bombers_spawned = (wave_manager.enemies_spawned_this_wave
+            .saturating_sub(current_config.scout_count + current_config.heavy_count))
+            .min(current_config.bomber_count);
+        let drones_spawned = (wave_manager.enemies_spawned_this_wave
+            .saturating_sub(current_config.scout_count + current_config.heavy_count + current_config.bomber_count))
+            .min(current_config.drone_count);
+        
+        let enemy_type = if scouts_spawned < current_config.scout_count {
+            EnemyType::Scout
+        } else if heavies_spawned < current_config.heavy_count {
+            EnemyType::Heavy
+        } else if bombers_spawned < current_config.bomber_count {
+            EnemyType::Bomber
+        } else if drones_spawned < current_config.drone_count {
+            EnemyType::Drone
+        } else {
+            return;
+        };
+        
+        spawn_enemy_typed(&mut commands, &mut meshes, &mut materials, enemy_type);
+        wave_manager.enemies_spawned_this_wave += 1;
+    }
+}
+
+fn spawn_enemy_typed(
+    commands: &mut Commands,
+    meshes: &mut Assets<bevy::render::mesh::Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    enemy_type: EnemyType,
+) {
     let mut rng = thread_rng();
-    let mut possib = |offset: u64, prob: i32| -> bool {
-        ((frames.0 + offset) % 180 == 0) && (rng.gen_range(0..100) < prob)
+    let x = rng.gen_range(-SCREEN_WIDTH/2.0 + 30.0..SCREEN_WIDTH/2.0 - 30.0);
+    let y = rng.gen_range(140.0..180.0);
+    
+    let (size, hp, color, speed, kind, movement) = match enemy_type {
+        EnemyType::Scout => (
+            SIZE_ENEMY, 
+            3, 
+            Color::rgb(0.3, 1.0, 0.3), 
+            rng.gen_range(100.0..140.0),
+            EnemyKind::Basic,
+            rng.gen_range(4..7),
+        ),
+        EnemyType::Heavy => (
+            Vec2::new(24.0, 24.0), 
+            12, 
+            Color::rgb(0.8, 0.3, 0.3), 
+            rng.gen_range(50.0..80.0),
+            EnemyKind::Basic,
+            rng.gen_range(0..4),
+        ),
+        EnemyType::Bomber => (
+            Vec2::new(20.0, 18.0), 
+            6, 
+            Color::rgb(0.9, 0.6, 0.2), 
+            rng.gen_range(70.0..100.0),
+            EnemyKind::Special,
+            rng.gen_range(4..7),
+        ),
+        EnemyType::Drone => (
+            Vec2::new(14.0, 14.0), 
+            4, 
+            Color::rgb(0.5, 0.5, 1.0), 
+            rng.gen_range(90.0..130.0),
+            EnemyKind::Basic,
+            7,
+        ),
     };
-    let mut mark = false;
 
-    // tipo 1
-    if possib(0, 35) {
-        let kind = if score.0 >= 500 { EnemyKind::Special } else { EnemyKind::Basic };
-        spawn_enemy(&mut commands, &mut meshes, &mut materials, kind);
-        mark = true;
+    let mut e = commands.spawn((
+        SpatialBundle { transform: Transform::from_translation(Vec3::new(x, y, 9.0)), ..default() },
+        Enemy { 
+            movement, 
+            distance: rng.gen_range(20..70), 
+            phase: rng.gen_range(0.0..(std::f32::consts::TAU)), 
+            speed: speed / 100.0, 
+            shoot_time: rng.gen_range(20..120), 
+            kind 
+        },
+        Collider { w: size.x, h: size.y },
+        Health { hp, max: hp },
+        Name::new("Enemy"),
+    ));
+    let eid = e.id();
+    let mut bounds: Option<ShipBounds> = None;
+    e.with_children(|c| {
+        let seed = rng.gen();
+        let b = spawn_ship_visual(c, meshes, materials, size, seed, color);
+        bounds = Some(b);
+    });
+    drop(e);
+    if let Some(b) = bounds { 
+        if let Some(mut ecmd) = commands.get_entity(eid) { 
+            ecmd.insert(Collider { w: b.width_units * size.x, h: b.height_units * size.y }); 
+        } 
     }
-    // tipo 2
-    if possib(100, 35) {
-        let kind = if score.0 >= 500 { EnemyKind::Special } else { EnemyKind::Basic };
-        spawn_enemy(&mut commands, &mut meshes, &mut materials, kind);
-        mark = true;
-    }
-    // meteoro shower
-    if possib(200, 35) {
-        for _ in 0..50 { spawn_enemy(&mut commands, &mut meshes, &mut materials, EnemyKind::Meteor); }
-        mark = true;
-    }
-    // extra
-    if possib(300, 35) {
-        spawn_enemy(&mut commands, &mut meshes, &mut materials, EnemyKind::Basic);
-        mark = true;
-    }
-    // fallback a cada ~3s: garante inimigos
-    if frames.0.saturating_sub(*last_spawn_frame) > 180 {
-        spawn_enemy(&mut commands, &mut meshes, &mut materials, EnemyKind::Basic);
-        mark = true;
-    }
-    if mark { *last_spawn_frame = frames.0; }
-
-    // update população
-    // nota: populaçao real é derivada, mas mantemos aproximado
-    pop.0 = pop.0.saturating_add(0); // placeholder para futuros limites
 }
 
 fn spawn_enemy(
@@ -972,51 +1024,18 @@ fn spawn_enemy(
     kind: EnemyKind,
 ) {
     let mut rng = thread_rng();
-    
-    let enemy_type = match kind {
-        EnemyKind::Basic => {
-            let roll = rng.gen_range(0..100);
-            if roll < 40 { EnemyType::Scout }
-            else if roll < 65 { EnemyType::Bomber }
-            else if roll < 85 { EnemyType::Heavy }
-            else { EnemyType::Drone }
-        },
-        EnemyKind::Meteor => EnemyType::Drone,
-        EnemyKind::Special => EnemyType::Heavy,
-    };
-    
     let x = rng.gen_range(-SCREEN_WIDTH/2.0 + 30.0..SCREEN_WIDTH/2.0 - 30.0);
-    let y = rng.gen_range(140.0..180.0);
-    
-    let (size, hp, color, base_speed) = match kind {
-        EnemyKind::Basic => {
-            let size = enemy_type.size();
-            let hp = enemy_type.health();
-            let color = enemy_type.color();
-            let speed = enemy_type.speed();
-            (size, hp, color, speed * rng.gen_range(70.0..120.0))
-        },
+    let y = rng.gen_range(140.0..180.0); // perto do topo (mundo)
+    let (size, hp, color, speed) = match kind {
+        EnemyKind::Basic => (SIZE_ENEMY, ENEMY_HEALTH, Color::rgb(1.0, 0.3, 0.3), rng.gen_range(70.0..120.0)),
         EnemyKind::Meteor => (SIZE_METEOR, 1, Color::rgb(0.7, 0.6, 0.4), rng.gen_range(80.0..160.0)),
         EnemyKind::Special => (Vec2::new(100.0, 20.0), 8, Color::rgb(0.6, 0.5, 0.5), rng.gen_range(40.0..70.0)),
     };
 
-    let movement = if matches!(kind, EnemyKind::Basic) {
-        enemy_type.default_movement()
-    } else {
-        rng.gen_range(0..8)
-    };
-
     let mut e = commands.spawn((
         SpatialBundle { transform: Transform::from_translation(Vec3::new(x, y, 9.0)), ..default() },
-        Enemy { 
-            movement, 
-            distance: rng.gen_range(20..70), 
-            phase: rng.gen_range(0.0..(std::f32::consts::TAU)), 
-            speed: base_speed / 100.0, 
-            shoot_time: rng.gen_range(20..120), 
-            kind,
-            enemy_type,
-        },
+        Enemy { movement: rng.gen_range(0..8), distance: rng.gen_range(20..70), phase: rng.gen_range(0.0..(std::f32::consts::TAU)), speed: speed / 100.0, shoot_time: rng.gen_range(20..120), kind },
+        // placeholder; ajusta após construir
         Collider { w: size.x, h: size.y },
         Health { hp, max: hp },
         Name::new("Enemy"),
@@ -1032,66 +1051,16 @@ fn spawn_enemy(
     if let Some(b) = bounds { if let Some(mut ecmd) = commands.get_entity(eid) { ecmd.insert(Collider { w: b.width_units * size.x, h: b.height_units * size.y }); } }
 }
 
-fn spawn_boss(
-    commands: &mut Commands,
-    meshes: &mut Assets<bevy::render::mesh::Mesh>,
-    materials: &mut Assets<ColorMaterial>,
-    milestone: i32,
-) {
-    let x = 0.0;
-    let y = 150.0;
-    let size = Vec2::new(80.0, 60.0);
-    let base_hp = 100 + (milestone / 500) * 50;
-    let color = Color::rgb(1.2, 0.8, 0.2);
-    
-    let phase_thresholds = vec![0.75, 0.5, 0.25];
-    
-    let mut e = commands.spawn((
-        SpatialBundle { transform: Transform::from_translation(Vec3::new(x, y, 9.0)), ..default() },
-        Enemy { 
-            movement: 4, 
-            distance: 100, 
-            phase: 0.0, 
-            speed: 0.4, 
-            shoot_time: 60, 
-            kind: EnemyKind::Special 
-        },
-        Boss {
-            current_phase: 0,
-            phase_health_thresholds: phase_thresholds,
-            current_attack_pattern_index: 0,
-        },
-        FiringPattern { pattern_type: 0 },
-        Collider { w: size.x, h: size.y },
-        Health { hp: base_hp, max: base_hp },
-        Name::new("Boss"),
-    ));
-    
-    let eid = e.id();
-    let mut bounds: Option<ShipBounds> = None;
-    e.with_children(|c| {
-        let seed = milestone as u32;
-        let b = spawn_ship_visual(c, meshes, materials, size, seed, color);
-        bounds = Some(b);
-    });
-    drop(e);
-    if let Some(b) = bounds { 
-        if let Some(mut ecmd) = commands.get_entity(eid) { 
-            ecmd.insert(Collider { w: b.width_units * size.x, h: b.height_units * size.y }); 
-        } 
-    }
-}
-
 fn enemy_behavior(
     time: Res<Time>,
     mut commands: Commands,
-    mut q: Query<(Entity, &mut Transform, &mut Enemy, &Collider, Option<&FiringPattern>), (Without<Player>, Without<Boss>)>,
+    mut q: Query<(Entity, &mut Transform, &mut Enemy, &Collider), Without<Player>>,
     q_player: Query<&Transform, With<Player>>,
     mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let player_t = q_player.get_single().ok().map(|t| t.translation);
-    for (entity, mut t, mut e, col, _firing) in &mut q {
+    for (entity, mut t, mut e, col) in &mut q {
         let old = t.translation;
         // movimento
         match e.movement {
@@ -1142,144 +1111,6 @@ fn enemy_behavior(
 
         // leve "bank" visual: aqui omitimos, pois não rotacionamos mesh infantil
         let _vx = t.translation.x - old.x; let _vy = t.translation.y - old.y; let _ = (_vx, _vy);
-    }
-}
-
-fn boss_behavior(
-    time: Res<Time>,
-    mut commands: Commands,
-    mut q_boss: Query<(Entity, &mut Transform, &mut Enemy, &mut Boss, &mut FiringPattern, &Health, &Collider), With<Boss>>,
-    q_player: Query<&Transform, With<Player>>,
-    mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    mut shake: ResMut<Shake>,
-    audio: Res<AudioEngine>,
-    muted: Res<Muted>,
-) {
-    let player_t = q_player.get_single().ok().map(|t| t.translation);
-    
-    for (entity, mut t, mut e, mut boss, mut firing, health, col) in &mut q_boss {
-        let health_percent = health.hp as f32 / health.max as f32;
-        
-        let mut phase_changed = false;
-        if boss.current_phase < boss.phase_health_thresholds.len() {
-            if health_percent <= boss.phase_health_thresholds[boss.current_phase] {
-                boss.current_phase += 1;
-                boss.current_attack_pattern_index = (boss.current_attack_pattern_index + 1) % 4;
-                firing.pattern_type = boss.current_attack_pattern_index as u8;
-                phase_changed = true;
-                
-                shake.intensity = 6.0;
-                shake.frames = 40;
-                emit_burst(&mut commands, &mut meshes, &mut materials, 
-                    Vec2::new(t.translation.x, t.translation.y), 
-                    Color::rgb(1.5, 0.5, 1.0), 
-                    60, 
-                    150.0..350.0, 
-                    0.03..0.08
-                );
-                if !muted.0 {
-                    audio.explosion();
-                }
-            }
-        }
-        
-        let phase_speed_multiplier = 1.0 + (boss.current_phase as f32 * 0.3);
-        match boss.current_attack_pattern_index {
-            0 => {
-                e.phase += 0.08 * phase_speed_multiplier;
-                t.translation.x = (e.phase).sin() * 180.0;
-                t.translation.y = t.translation.y.max(100.0).min(180.0);
-                e.movement = 4;
-            }
-            1 => {
-                e.phase += 0.12 * phase_speed_multiplier;
-                t.translation.x = (e.phase).cos() * 140.0;
-                t.translation.y = 120.0 + (e.phase * 1.5).sin() * 40.0;
-                e.movement = 6;
-            }
-            2 => {
-                if let Some(pt) = player_t {
-                    let dx = pt.x - t.translation.x;
-                    let dy = pt.y - t.translation.y;
-                    let ang = dy.atan2(dx);
-                    t.translation.x += ang.cos() * 40.0 * phase_speed_multiplier * time.delta_seconds();
-                    t.translation.y += ang.sin() * 40.0 * phase_speed_multiplier * time.delta_seconds();
-                }
-                e.movement = 7;
-            }
-            _ => {
-                e.phase += 0.15 * phase_speed_multiplier;
-                t.translation.x = (e.phase * 2.0).sin() * 200.0;
-                t.translation.y = 140.0;
-                e.movement = 4;
-            }
-        }
-        
-        t.translation.x = t.translation.x.clamp(-SCREEN_WIDTH/2.0 + 50.0, SCREEN_WIDTH/2.0 - 50.0);
-        t.translation.y = t.translation.y.clamp(80.0, SCREEN_HEIGHT/2.0 - 50.0);
-        
-        if e.shoot_time <= 0 {
-            let shots_per_phase = 2 + boss.current_phase * 2;
-            let bx = t.translation.x;
-            let by = t.translation.y - col.h / 2.0;
-            
-            match firing.pattern_type {
-                0 => {
-                    for i in 0..shots_per_phase {
-                        let offset = (i as f32 - shots_per_phase as f32 / 2.0) * 15.0;
-                        spawn_missile(&mut commands, &mut meshes, &mut materials, 
-                            Vec2::new(bx + offset, by - 10.0), 
-                            Vec2::new(0.0, -220.0), 
-                            false
-                        );
-                    }
-                }
-                1 => {
-                    for i in 0..shots_per_phase {
-                        let angle = (i as f32 / shots_per_phase as f32) * std::f32::consts::PI - std::f32::consts::FRAC_PI_2;
-                        let vel = Vec2::new(angle.cos() * 180.0, angle.sin() * 180.0 - 100.0);
-                        spawn_missile(&mut commands, &mut meshes, &mut materials, 
-                            Vec2::new(bx, by - 10.0), 
-                            vel, 
-                            false
-                        );
-                    }
-                }
-                2 => {
-                    if let Some(pt) = player_t {
-                        for i in 0..shots_per_phase {
-                            let dx = pt.x - bx;
-                            let dy = pt.y - by;
-                            let base_angle = dy.atan2(dx);
-                            let spread = (i as f32 - shots_per_phase as f32 / 2.0) * 0.15;
-                            let angle = base_angle + spread;
-                            let vel = Vec2::new(angle.cos() * 200.0, angle.sin() * 200.0);
-                            spawn_missile(&mut commands, &mut meshes, &mut materials, 
-                                Vec2::new(bx, by - 10.0), 
-                                vel, 
-                                false
-                            );
-                        }
-                    }
-                }
-                _ => {
-                    for i in 0..(shots_per_phase * 2) {
-                        let angle = (i as f32 / (shots_per_phase * 2) as f32) * std::f32::consts::TAU;
-                        let vel = Vec2::new(angle.cos() * 150.0, angle.sin() * 150.0);
-                        spawn_missile(&mut commands, &mut meshes, &mut materials, 
-                            Vec2::new(bx, by), 
-                            vel, 
-                            false
-                        );
-                    }
-                }
-            }
-            
-            e.shoot_time = (80 - (boss.current_phase as i32) * 15).max(20);
-        } else {
-            e.shoot_time -= 1;
-        }
     }
 }
 
@@ -1692,7 +1523,6 @@ fn main() {
             lifetime_cleanup,
             enemy_spawner,
             enemy_behavior,
-            boss_behavior,
             collisions_and_damage,
             engine_flame_pulse,
             camera_shake,
