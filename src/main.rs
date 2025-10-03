@@ -4,6 +4,8 @@ use bevy::window::PrimaryWindow;
 use bevy::render::mesh::{Indices, Mesh, PrimitiveTopology};
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::math::primitives::Rectangle;
+use bevy::core_pipeline::bloom::BloomSettings;
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use rand::prelude::*;
 use rand::rngs::StdRng;
@@ -226,6 +228,19 @@ struct Charge {
 struct EngineFlame { timer: Timer }
 
 #[derive(Component)]
+struct Particle2D {
+    vel: Vec2,
+    life: f32,
+    total: f32,
+    start: Color,
+    end: Color,
+    spin: f32,
+}
+
+#[derive(Component)]
+struct ToDespawn;
+
+#[derive(Component)]
 struct Star { speed: f32 }
 
 #[derive(Component)]
@@ -334,13 +349,59 @@ fn spawn_ship_visual(
         1 => mesh_diamond(),
         _ => mesh_arrow(),
     };
-    let mesh_h = meshes.add(mesh);
-    let mat_h = materials.add(base_color);
-    parent.spawn(MaterialMesh2dBundle {
-        mesh: Mesh2dHandle(mesh_h),
-        material: mat_h,
-        transform: Transform::from_scale(Vec3::new(size.x, size.y, 1.0)),
-        ..default()
+    // Grupo raiz que será escalado ao tamanho alvo
+    let mut root = parent.spawn((SpatialBundle { transform: Transform::from_scale(Vec3::new(size.x, size.y, 1.0)), ..default() }, Name::new("ship_root")));
+    root.with_children(|g| {
+        // Hull central (cor base)
+let hull_mat = materials.add(ColorMaterial { color: base_color, ..default() });
+        let mesh_h = meshes.add(mesh);
+        g.spawn(MaterialMesh2dBundle {
+            mesh: Mesh2dHandle(mesh_h),
+            material: hull_mat,
+            transform: Transform::default(),
+            ..default()
+        });
+        // Asas segmentadas simétricas para variedade
+        let mut rng = StdRng::seed_from_u64((seed as u64) ^ 0xA5A5_A5A5);
+let wing_mat = materials.add(ColorMaterial { color: base_color * 0.8, ..default() });
+        for i in 0..4 {
+            let y = 0.15 - 0.1 * i as f32; // posições ao longo do corpo
+            let w = 0.15 + rng.gen_range(0.05..0.18) * (1.0 - i as f32 * 0.18);
+            let h = 0.05 + rng.gen_range(0.02..0.06);
+            let wing = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(w, h), ..Default::default() }));
+            // esquerda
+            g.spawn(MaterialMesh2dBundle {
+                mesh: Mesh2dHandle(wing.clone()),
+                material: wing_mat.clone(),
+                transform: Transform::from_translation(Vec3::new(-0.25 - w, y, 0.0)),
+                ..default()
+            });
+            // direita
+            g.spawn(MaterialMesh2dBundle {
+                mesh: Mesh2dHandle(wing.clone()),
+                material: wing_mat.clone(),
+                transform: Transform::from_translation(Vec3::new(0.25 + w, y, 0.0)),
+                ..default()
+            });
+        }
+        // Cockpit brilhante (glow)
+        let cockpit = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(0.07, 0.06), ..Default::default() }));
+let cockpit_mat = materials.add(ColorMaterial { color: Color::rgba(0.6, 1.6, 2.0, 1.0), ..default() });
+        g.spawn(MaterialMesh2dBundle {
+            mesh: Mesh2dHandle(cockpit),
+            material: cockpit_mat,
+            transform: Transform::from_translation(Vec3::new(0.0, 0.12, 0.1)),
+            ..default()
+        });
+        // Listras/acento (glow fraco)
+        let stripe = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(0.4, 0.01), ..Default::default() }));
+let stripe_mat = materials.add(ColorMaterial { color: Color::rgba(2.0, 1.4, 0.5, 0.6), ..default() });
+        g.spawn(MaterialMesh2dBundle {
+            mesh: Mesh2dHandle(stripe),
+            material: stripe_mat,
+            transform: Transform::from_translation(Vec3::new(0.0, -0.05, 0.05)),
+            ..default()
+        });
     });
 }
 
@@ -353,7 +414,7 @@ fn spawn_engine_glow(
 use bevy::render::mesh::Mesh;
     let mesh = Mesh::from(Rectangle { half_size: Vec2::new(0.5, 0.15), ..Default::default() });
     let mesh_h = meshes.add(mesh);
-    let mat_h = materials.add(Color::rgb(1.0, 0.5, 0.1));
+let mat_h = materials.add(ColorMaterial { color: Color::rgba(1.8, 0.9, 0.4, 0.9), ..default() });
     parent.spawn((
         MaterialMesh2dBundle {
             mesh: Mesh2dHandle(mesh_h),
@@ -372,8 +433,15 @@ fn setup(
     mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    // câmera 2D
-    commands.spawn(Camera2dBundle::default());
+    // câmera 2D com HDR + Bloom para efeitos de glow
+    commands.spawn((
+        Camera2dBundle {
+            camera: Camera { hdr: true, ..default() },
+            tonemapping: Tonemapping::Reinhard,
+            ..default()
+        },
+        BloomSettings::NATURAL,
+    ));
 
     // fundo preto
     commands.insert_resource(ClearColor(Color::BLACK));
@@ -510,7 +578,7 @@ let mesh = Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::defaul
             let mesh_h = meshes.add(mesh);
             let mat_h = materials.add(laser_color);
             let y = t.translation.y + (SIZE_PLAYER.y / 2.0) - 10.0;
-            commands.spawn((
+            let mut laser_e = commands.spawn((
                 MaterialMesh2dBundle {
                     mesh: Mesh2dHandle(mesh_h),
                     material: mat_h,
@@ -525,6 +593,19 @@ let mesh = Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::defaul
                 Lifetime { timer: Timer::from_seconds(0.8, TimerMode::Once) },
                 Name::new("Laser"),
             ));
+            // aura glow como filho
+            laser_e.with_children(|c| {
+                let glow_mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(1.0, 6.0), ..Default::default() }));
+let glow_mat = materials.add(ColorMaterial { color: Color::rgba(0.4, 2.4, 2.8, 0.6), ..default() });
+                c.spawn(MaterialMesh2dBundle {
+                    mesh: Mesh2dHandle(glow_mesh),
+                    material: glow_mat,
+                    transform: Transform::from_scale(Vec3::new(1.0, 1.0, 1.0)),
+                    ..default()
+                });
+            });
+            // partículas de muzzle flash
+            emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(t.translation.x, y), Color::rgb(0.6, 1.0, 1.0), 10, 80.0..180.0, 0.02..0.06);
             if !muted.0 { let level = (score.0 as f32).clamp(0.0, 3000.0); let end = 1000.0 + level * 0.2; audio.laser_sweep(500.0, end.min(2200.0)); }
         } else {
             // míssil
@@ -569,12 +650,12 @@ fn spawn_missile(
     vel: Vec2,
     friendly: bool,
 ) {
-use bevy::render::mesh::Mesh;
+    use bevy::render::mesh::Mesh;
     let mesh = Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() });
     let mesh_h = meshes.add(mesh);
     let color = if friendly { Color::rgb(0.9, 0.9, 0.9) } else { Color::rgb(1.0, 0.4, 0.4) };
-    let mat_h = materials.add(color);
-    commands.spawn((
+    let mat_h = materials.add(ColorMaterial { color, ..default() });
+    let mut e = commands.spawn((
         MaterialMesh2dBundle {
             mesh: Mesh2dHandle(mesh_h),
             material: mat_h,
@@ -587,6 +668,17 @@ use bevy::render::mesh::Mesh;
         Velocity(Vec2::new(vel.x, vel.y)),
         Name::new(if friendly { "Missile(F)" } else { "Missile(E)" }),
     ));
+    // halo glow como filho
+    e.with_children(|c| {
+        let gmesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(1.0), ..Default::default() }));
+let gmat = materials.add(ColorMaterial { color: Color::rgba(1.8, 1.2, 0.6, 0.7), ..default() });
+        c.spawn(MaterialMesh2dBundle {
+            mesh: Mesh2dHandle(gmesh),
+            material: gmat,
+            transform: Transform::from_scale(Vec3::new(1.2, 1.2, 1.0)),
+            ..default()
+        });
+    });
 }
 
 fn follow_laser_to_player(
@@ -617,7 +709,7 @@ fn move_bullets(
         }
         if t.translation.x < -SCREEN_WIDTH/2.0 - 10.0 || t.translation.x > SCREEN_WIDTH/2.0 + 10.0 ||
            t.translation.y < -SCREEN_HEIGHT/2.0 - 10.0 || t.translation.y > SCREEN_HEIGHT/2.0 + 10.0 {
-            commands.entity(e).despawn_recursive();
+            commands.entity(e).insert(ToDespawn);
         }
     }
 }
@@ -625,7 +717,7 @@ fn move_bullets(
 fn lifetime_cleanup(time: Res<Time>, mut commands: Commands, mut q: Query<(Entity, &mut Lifetime)>) {
     for (e, mut lt) in &mut q {
         lt.timer.tick(time.delta());
-        if lt.timer.finished() { commands.entity(e).despawn_recursive(); }
+        if lt.timer.finished() { commands.entity(e).insert(ToDespawn); }
     }
 }
 
@@ -760,7 +852,7 @@ fn enemy_behavior(
 
         // se sair muito da tela, remove
         if t.translation.y < -SCREEN_HEIGHT/2.0 - 30.0 || t.translation.x < -SCREEN_WIDTH/2.0 - 30.0 || t.translation.x > SCREEN_WIDTH/2.0 + 30.0 {
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).insert(ToDespawn);
             continue;
         }
 
@@ -780,6 +872,8 @@ fn collisions_and_damage(
     )>,
     audio: Res<AudioEngine>,
     muted: Res<Muted>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     use std::collections::HashSet;
     // Snapshot bullets to avoid overlapping ParamSet borrows
@@ -802,14 +896,18 @@ fn collisions_and_damage(
             let dy = (by - ey).abs() - (bh / 2.0) - (ec.h / 2.0);
             if dx <= 0.0 && dy <= 0.0 {
                 eh.hp -= dmg;
-                commands.entity(be).despawn_recursive();
+                commands.entity(be).insert(ToDespawn);
                 removed_bullets.insert(be);
                 if eh.hp <= 0 {
                     score.0 += match enemy.kind { EnemyKind::Basic => POINTS_ENEMY, EnemyKind::Meteor => POINTS_METEOR, EnemyKind::Special => POINTS_SPECIAL };
                     let (intensity, frames) = if matches!(enemy.kind, EnemyKind::Special) { (3.0, 24) } else { (1.5, 8) };
                     shake.intensity = intensity;
                     shake.frames = frames;
-                    commands.entity(ee).despawn_recursive();
+                    // partículas de explosão
+                    let ex = ex;
+                    let ey = ey;
+                    emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(ex, ey), Color::rgb(1.0, 0.6, 0.2), 36, 120.0..260.0, 0.02..0.06);
+                    commands.entity(ee).insert(ToDespawn);
                     removed_enemies.insert(ee);
                     if !muted.0 { audio.explosion(); }
                 }
@@ -830,11 +928,13 @@ fn collisions_and_damage(
                 php.hp -= dmg;
                 shake.intensity = 2.0;
                 shake.frames = 10;
-                commands.entity(be).despawn_recursive();
+                // impacto visual no player
+                emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(px, py), Color::rgb(1.0, 0.2, 0.2), 18, 80.0..160.0, 0.015..0.04);
+                commands.entity(be).insert(ToDespawn);
                 removed_bullets.insert(be);
                 if !muted.0 { audio.hit(); }
                 if php.hp <= 0 {
-                    commands.entity(pe).despawn_recursive();
+                    commands.entity(pe).insert(ToDespawn);
                 }
             }
         }
@@ -848,8 +948,76 @@ fn engine_flame_pulse(time: Res<Time>, mut q: Query<(&mut EngineFlame, &Handle<C
             if let Some(mat) = materials.get_mut(mat_h) {
                 // pequeno pulso emissivo (simulado via cor)
                 let t = (std::time::Instant::now().elapsed().as_secs_f32() * 6.0).sin() * 0.3 + 0.7;
-                mat.color = Color::rgb(1.0 * t, 0.5 * t, 0.1 * t);
+                mat.color = Color::rgba(1.8 * t, 0.9 * t, 0.4 * t, 0.9);
             }
+        }
+    }
+}
+
+// Partículas 2D simples
+fn emit_burst(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    pos: Vec2,
+    color: Color,
+    count: usize,
+    speed: std::ops::Range<f32>,
+    size: std::ops::Range<f32>,
+) {
+    let mut rng = rand::thread_rng();
+    for _ in 0..count {
+        let ang = rng.gen::<f32>() * std::f32::consts::TAU;
+        let spd = rng.gen_range(speed.start..speed.end);
+        let vx = ang.cos() * spd;
+        let vy = ang.sin() * spd;
+        let sz = rng.gen_range(size.start..size.end);
+        let life = rng.gen_range(0.35..0.65);
+        let mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() }));
+        let mat = materials.add(ColorMaterial { color: Color::rgba(color.r() * 1.6, color.g() * 1.6, color.b() * 1.6, 0.95), ..default() });
+        commands.spawn((
+            MaterialMesh2dBundle {
+                mesh: Mesh2dHandle(mesh),
+                material: mat,
+                transform: Transform::from_translation(Vec3::new(pos.x, pos.y, 7.0)).with_scale(Vec3::splat(sz)),
+                ..default()
+            },
+            Particle2D { vel: Vec2::new(vx, vy), life, total: life, start: color * 1.2, end: Color::rgba(0.0, 0.0, 0.0, 0.0), spin: rng.gen_range(-6.0..6.0) },
+        ));
+    }
+}
+
+fn update_particles(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut Transform, &mut Particle2D, &Handle<ColorMaterial>)>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let dt = time.delta_seconds();
+    for (e, mut t, mut p, mat_h) in &mut q {
+        p.life -= dt;
+        if p.life <= 0.0 {
+            commands.entity(e).insert(ToDespawn);
+            continue;
+        }
+        // update pos/vel
+        t.translation.x += p.vel.x * dt;
+        t.translation.y += p.vel.y * dt;
+        p.vel *= 0.96;
+        // spin / scale fade
+        t.rotate_z(p.spin * dt);
+        let k = 1.0 - (p.life / p.total);
+        let s = (1.0 - k * 0.8).max(0.1);
+        t.scale = Vec3::splat(s);
+        // color lerp
+        if let Some(m) = materials.get_mut(mat_h) {
+            let c = Color::rgba(
+                p.start.r() * (1.0 - k) + p.end.r() * k,
+                p.start.g() * (1.0 - k) + p.end.g() * k,
+                p.start.b() * (1.0 - k) + p.end.b() * k,
+                (1.0 - k) * 0.9,
+            );
+            m.color = c;
         }
     }
 }
@@ -1024,8 +1192,15 @@ fn main() {
             engine_flame_pulse,
             camera_shake,
             check_game_over,
+            update_particles,
         ).run_if(run_if_running()))
+        // aplicar despawns no fim do Update
+        .add_systems(Update, commit_despawns)
         // restart quando GameOver
         .add_systems(Update, restart_on_click.run_if(in_state(GamePhase::GameOver)))
         .run();
+}
+
+fn commit_despawns(mut commands: Commands, q: Query<Entity, With<ToDespawn>>) {
+    for e in &q { commands.entity(e).despawn_recursive(); }
 }
