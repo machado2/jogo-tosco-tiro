@@ -605,18 +605,18 @@ fn setup(
     commands.insert_resource(EnemyPopulation(0));
     commands.insert_resource(CursorPos::default());
     commands.insert_resource(Shake::default());
-    commands.insert_resource(Muted(false));
+    commands.insert_resource(Muted(true));
     commands.insert_resource(AudioEngine::new());
     
     // wave manager com configurações de ondas
     let wave_configs = vec![
-        WaveConfig { scout_count: 3, heavy_count: 0, bomber_count: 0, drone_count: 0, spawn_interval: 2.0, score_threshold: 0 },
-        WaveConfig { scout_count: 5, heavy_count: 1, bomber_count: 0, drone_count: 0, spawn_interval: 1.8, score_threshold: 50 },
-        WaveConfig { scout_count: 4, heavy_count: 2, bomber_count: 1, drone_count: 0, spawn_interval: 1.5, score_threshold: 150 },
-        WaveConfig { scout_count: 6, heavy_count: 2, bomber_count: 2, drone_count: 1, spawn_interval: 1.3, score_threshold: 300 },
-        WaveConfig { scout_count: 8, heavy_count: 3, bomber_count: 2, drone_count: 2, spawn_interval: 1.0, score_threshold: 500 },
-        WaveConfig { scout_count: 10, heavy_count: 4, bomber_count: 3, drone_count: 3, spawn_interval: 0.8, score_threshold: 750 },
-        WaveConfig { scout_count: 12, heavy_count: 5, bomber_count: 4, drone_count: 4, spawn_interval: 0.6, score_threshold: 1000 },
+        WaveConfig { scout_count: 8, heavy_count: 1, bomber_count: 0, drone_count: 1, spawn_interval: 0.80, score_threshold: 0 },
+        WaveConfig { scout_count: 12, heavy_count: 2, bomber_count: 1, drone_count: 1, spawn_interval: 0.60, score_threshold: 50 },
+        WaveConfig { scout_count: 16, heavy_count: 3, bomber_count: 2, drone_count: 2, spawn_interval: 0.50, score_threshold: 150 },
+        WaveConfig { scout_count: 20, heavy_count: 4, bomber_count: 3, drone_count: 3, spawn_interval: 0.45, score_threshold: 300 },
+        WaveConfig { scout_count: 24, heavy_count: 5, bomber_count: 4, drone_count: 4, spawn_interval: 0.40, score_threshold: 500 },
+        WaveConfig { scout_count: 28, heavy_count: 6, bomber_count: 5, drone_count: 5, spawn_interval: 0.35, score_threshold: 750 },
+        WaveConfig { scout_count: 32, heavy_count: 8, bomber_count: 6, drone_count: 6, spawn_interval: 0.30, score_threshold: 1000 },
     ];
     commands.insert_resource(WaveManager {
         current_wave: 0,
@@ -958,32 +958,44 @@ fn enemy_spawner(
     // verifica se é hora de spawnar próximo inimigo
     if wave_manager.wave_timer >= current_config.spawn_interval {
         wave_manager.wave_timer = 0.0;
-        
-        // determina qual tipo spawnar baseado no que resta
-        let scouts_spawned = wave_manager.enemies_spawned_this_wave.min(current_config.scout_count);
-        let heavies_spawned = (wave_manager.enemies_spawned_this_wave.saturating_sub(current_config.scout_count))
-            .min(current_config.heavy_count);
-        let bombers_spawned = (wave_manager.enemies_spawned_this_wave
-            .saturating_sub(current_config.scout_count + current_config.heavy_count))
-            .min(current_config.bomber_count);
-        let drones_spawned = (wave_manager.enemies_spawned_this_wave
-            .saturating_sub(current_config.scout_count + current_config.heavy_count + current_config.bomber_count))
-            .min(current_config.drone_count);
-        
-        let enemy_type = if scouts_spawned < current_config.scout_count {
-            EnemyType::Scout
-        } else if heavies_spawned < current_config.heavy_count {
-            EnemyType::Heavy
-        } else if bombers_spawned < current_config.bomber_count {
-            EnemyType::Bomber
-        } else if drones_spawned < current_config.drone_count {
-            EnemyType::Drone
-        } else {
-            return;
+
+        // quantos spawnar neste tick, baseado na onda atual
+        let spawns_this_tick = match wave_manager.current_wave {
+            0 => 1,
+            1 => 2,
+            _ => 3,
         };
-        
-        spawn_enemy_typed(&mut commands, &mut meshes, &mut materials, enemy_type);
-        wave_manager.enemies_spawned_this_wave += 1;
+
+        for _ in 0..spawns_this_tick {
+            // se já alcançou o total desta onda, sai
+            if wave_manager.enemies_spawned_this_wave >= total_enemies { break; }
+
+            // determina qual tipo spawnar baseado no que resta
+            let scouts_spawned = wave_manager.enemies_spawned_this_wave.min(current_config.scout_count);
+            let heavies_spawned = (wave_manager.enemies_spawned_this_wave.saturating_sub(current_config.scout_count))
+                .min(current_config.heavy_count);
+            let bombers_spawned = (wave_manager.enemies_spawned_this_wave
+                .saturating_sub(current_config.scout_count + current_config.heavy_count))
+                .min(current_config.bomber_count);
+            let drones_spawned = (wave_manager.enemies_spawned_this_wave
+                .saturating_sub(current_config.scout_count + current_config.heavy_count + current_config.bomber_count))
+                .min(current_config.drone_count);
+
+            let enemy_type = if scouts_spawned < current_config.scout_count {
+                EnemyType::Scout
+            } else if heavies_spawned < current_config.heavy_count {
+                EnemyType::Heavy
+            } else if bombers_spawned < current_config.bomber_count {
+                EnemyType::Bomber
+            } else if drones_spawned < current_config.drone_count {
+                EnemyType::Drone
+            } else {
+                break;
+            };
+
+            spawn_enemy_typed(&mut commands, &mut meshes, &mut materials, enemy_type);
+            wave_manager.enemies_spawned_this_wave += 1;
+        }
     }
 }
 
@@ -999,51 +1011,70 @@ fn spawn_enemy_typed(
     
     let (size, hp, color, speed, kind, movement) = match enemy_type {
         EnemyType::Scout => (
-            SIZE_ENEMY, 
-            3, 
-            Color::rgb(0.3, 1.0, 0.3), 
+            SIZE_ENEMY,
+            3,
+            Color::rgb(0.3, 1.0, 0.3),
             rng.gen_range(100.0..140.0),
             EnemyKind::Basic,
             rng.gen_range(4..7),
         ),
         EnemyType::Heavy => (
-            Vec2::new(24.0, 24.0), 
-            12, 
-            Color::rgb(0.8, 0.3, 0.3), 
+            Vec2::new(24.0, 24.0),
+            12,
+            Color::rgb(0.8, 0.3, 0.3),
             rng.gen_range(50.0..80.0),
             EnemyKind::Basic,
             rng.gen_range(0..4),
         ),
         EnemyType::Bomber => (
-            Vec2::new(20.0, 18.0), 
-            6, 
-            Color::rgb(0.9, 0.6, 0.2), 
+            Vec2::new(20.0, 18.0),
+            6,
+            Color::rgb(0.9, 0.6, 0.2),
             rng.gen_range(70.0..100.0),
             EnemyKind::Special,
             rng.gen_range(4..7),
         ),
         EnemyType::Drone => (
-            Vec2::new(14.0, 14.0), 
-            4, 
-            Color::rgb(0.5, 0.5, 1.0), 
+            Vec2::new(14.0, 14.0),
+            4,
+            Color::rgb(0.5, 0.5, 1.0),
             rng.gen_range(90.0..130.0),
             EnemyKind::Basic,
             7,
         ),
     };
 
+    let trail_color = match kind {
+        EnemyKind::Basic => Color::rgb(1.2, 0.3, 0.3),
+        EnemyKind::Meteor => Color::rgb(0.8, 0.6, 0.4),
+        EnemyKind::Special => Color::rgb(0.8, 0.5, 0.8),
+    };
+
+    info!("Spawning enemy: {:?} at ({:.1}, {:.1})", enemy_type as u8, x, y);
+
     let mut e = commands.spawn((
         SpatialBundle { transform: Transform::from_translation(Vec3::new(x, y, 9.0)), ..default() },
-        Enemy { 
-            movement, 
-            distance: rng.gen_range(20..70), 
-            phase: rng.gen_range(0.0..(std::f32::consts::TAU)), 
-            speed: speed / 100.0, 
-            shoot_time: rng.gen_range(20..120), 
-            kind 
+        Enemy {
+            movement,
+            distance: rng.gen_range(20..70),
+            phase: rng.gen_range(0.0..(std::f32::consts::TAU)),
+            speed: speed / 100.0,
+            shoot_time: rng.gen_range(20..120),
+            kind,
+            circular_center: Vec2::new(x, y),
+            circular_radius: rng.gen_range(60.0..120.0),
+            circular_angle: rng.gen_range(0.0..(std::f32::consts::TAU)),
+            dash_timer: 0.0,
+            dash_cooldown: 0.0,
+            dash_state: 0,
+            formation_anchor: Vec2::new(x, y),
+            formation_offset: Vec2::new(rng.gen_range(-80.0..80.0), rng.gen_range(-60.0..60.0)),
         },
+        // placeholder; ajusta após construir
         Collider { w: size.x, h: size.y },
         Health { hp, max: hp },
+        Trail { positions: Vec::new(), max_length: 10, color: trail_color },
+        FiringPattern::Single,
         Name::new("Enemy"),
     ));
     let eid = e.id();
