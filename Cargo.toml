@@ -1,0 +1,18 @@
+[package]
+name = "jogo-tosco-tiro"
+version = "0.1.0"
+edition = "2021"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+[dependencies]
+bevy = { version = "0.13", default-features = true }
+bevy_egui = "0.26"
+rand = "0.8"
+rodio = "0.17"

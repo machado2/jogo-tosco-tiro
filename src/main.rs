@@ -1,0 +1,1031 @@
+use bevy::prelude::*;
+use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
+use bevy::window::PrimaryWindow;
+use bevy::render::mesh::{Indices, Mesh, PrimitiveTopology};
+use bevy::render::render_asset::RenderAssetUsages;
+use bevy::math::primitives::Rectangle;
+use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use rand::prelude::*;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
+use std::sync::mpsc::{self, Sender};
+use std::thread;
+
+// ====== Config (próximo do original) ======
+const SCREEN_WIDTH: f32 = 640.0;
+const SCREEN_HEIGHT: f32 = 480.0;
+const MAX_HEALTH: i32 = 100;
+const MAX_CHARGE: f32 = 1000.0;
+const CHARGE_REFILL_PER_SEC: f32 = 18.0; // ~0.3 por frame a 60fps
+const ENEMY_HEALTH: i32 = 5;
+const POINTS_ENEMY: i32 = 5;
+const POINTS_METEOR: i32 = 1;
+const POINTS_SPECIAL: i32 = 20; // aproximando Metralha/Transport
+
+const SIZE_PLAYER: Vec2 = Vec2::new(16.0, 16.0);
+const SIZE_ENEMY: Vec2 = Vec2::new(16.0, 16.0);
+const SIZE_METEOR: Vec2 = Vec2::new(5.0, 5.0);
+const SIZE_LASER: Vec2 = Vec2::new(2.0, 50.0);
+const SIZE_MISSILE: Vec2 = Vec2::new(4.0, 4.0);
+
+// ====== Game state ======
+#[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
+enum GamePhase {
+    #[default]
+    Running,
+    Paused,
+    GameOver,
+}
+
+#[derive(Resource, Default)]
+struct Score(i32);
+
+#[derive(Resource, Default)]
+struct FrameCounter(u64);
+
+#[derive(Resource, Default)]
+struct EnemyPopulation(u32);
+
+#[derive(Resource, Default)]
+struct CursorPos {
+    // coordenadas de tela (0..W, 0..H com origem no canto superior esquerdo)
+    screen: Vec2,
+    // mundo 2D Bevy (origem no centro)
+    world: Vec2,
+}
+
+#[derive(Resource, Default)]
+struct Shake {
+    frames: i32,
+    intensity: f32,
+}
+
+#[derive(Resource, Default)]
+struct Muted(bool);
+
+// ====== Components ======
+#[derive(Component)]
+struct Player;
+
+// ====== Procedural audio engine (rodio) ======
+#[derive(Resource, Clone)]
+struct AudioEngine {
+    tx: Sender<AudioMsg>,
+}
+
+enum AudioMsg {
+    Play { data: Vec<f32>, sample_rate: u32 },
+}
+
+impl AudioEngine {
+    fn new() -> Self {
+        let (tx, rx) = mpsc::channel::<AudioMsg>();
+        thread::spawn(move || {
+            // Rodio must live on this thread
+            let (_stream, handle) = match rodio::OutputStream::try_default() {
+                Ok(v) => v,
+                Err(_) => return, // no device
+            };
+            while let Ok(msg) = rx.recv() {
+                match msg {
+                    AudioMsg::Play { data, sample_rate } => {
+                        if let Ok(sink) = rodio::Sink::try_new(&handle) {
+                            let buf = rodio::buffer::SamplesBuffer::new(2, sample_rate, interleave_stereo(data));
+                            sink.append(buf);
+                            sink.detach();
+                        }
+                    }
+                }
+            }
+        });
+        Self { tx }
+    }
+
+    fn play_buffer(&self, data: Vec<f32>, sample_rate: u32) {
+        let _ = self.tx.send(AudioMsg::Play { data, sample_rate });
+    }
+
+    fn shoot(&self) { let sr = 44100; let data = synth_beep(sr, 0.08, 900.0, 0.25, Wave::Square, Some(60.0)); self.play_buffer(data, sr); }
+    fn shoot_pitch(&self, pitch: f32) { let sr = 44100; let data = synth_beep(sr, 0.08, 800.0 * pitch, 0.25, Wave::Square, Some(60.0)); self.play_buffer(data, sr); }
+    fn laser(&self) { let sr = 44100; let data = synth_gliss(sr, 0.18, 500.0, 1200.0, 0.22, Wave::Sine); self.play_buffer(data, sr); }
+    fn laser_sweep(&self, start: f32, end: f32) { let sr = 44100; let data = synth_gliss(sr, 0.18, start, end, 0.22, Wave::Sine); self.play_buffer(data, sr); }
+    fn special(&self) {
+        let sr = 44100;
+        let mut mix = vec![0.0; (sr as f32 * 0.35) as usize];
+        let tones = [220.0, 330.0, 440.0, 660.0];
+        for (i, f) in tones.iter().enumerate() {
+            let d = synth_beep(sr, 0.35, *f, 0.18 / (i as f32 + 1.0), Wave::Sine, Some(4.0));
+            mix_inplace(&mut mix, &d);
+        }
+        self.play_buffer(mix, sr);
+    }
+    fn explosion(&self) { let sr = 44100; let data = synth_noise(sr, 0.25, 0.28, Some(8.0)); self.play_buffer(data, sr); }
+    fn hit(&self) { let sr = 44100; let data = synth_noise(sr, 0.07, 0.2, Some(20.0)); self.play_buffer(data, sr); }
+}
+
+#[derive(Clone, Copy)]
+enum Wave { Sine, Square }
+
+fn synth_beep(sr: u32, dur: f32, freq: f32, vol: f32, wave: Wave, decay: Option<f32>) -> Vec<f32> {
+    let n = (sr as f32 * dur) as usize;
+    let mut out = vec![0.0; n];
+    for i in 0..n {
+        let t = i as f32 / sr as f32;
+        let env = decay.map(|d| (-d * t).exp()).unwrap_or(1.0);
+        let x = 2.0 * std::f32::consts::PI * freq * t;
+        let s = match wave { Wave::Sine => x.sin(), Wave::Square => if x.sin() >= 0.0 { 1.0 } else { -1.0 } };
+        out[i] = s * vol * env;
+    }
+    out
+}
+
+fn synth_gliss(sr: u32, dur: f32, f_start: f32, f_end: f32, vol: f32, wave: Wave) -> Vec<f32> {
+    let n = (sr as f32 * dur) as usize;
+    let mut out = vec![0.0; n];
+    for i in 0..n {
+        let t = i as f32 / sr as f32;
+        let f = f_start + (f_end - f_start) * t;
+        let x = 2.0 * std::f32::consts::PI * f * t;
+        let s = match wave { Wave::Sine => x.sin(), Wave::Square => if x.sin() >= 0.0 { 1.0 } else { -1.0 } };
+        out[i] = s * vol * (1.0 - t);
+    }
+    out
+}
+
+fn synth_noise(sr: u32, dur: f32, vol: f32, decay: Option<f32>) -> Vec<f32> {
+    let n = (sr as f32 * dur) as usize;
+    let mut out = vec![0.0; n];
+    let mut rng = rand::thread_rng();
+    for i in 0..n {
+        let t = i as f32 / sr as f32;
+        let env = decay.map(|d| (-d * t).exp()).unwrap_or(1.0);
+        let s: f32 = rng.gen::<f32>() * 2.0 - 1.0; // -1..1
+        out[i] = s * vol * env;
+    }
+    out
+}
+
+fn interleave_stereo(mono: Vec<f32>) -> Vec<f32> {
+    let mut out = Vec::with_capacity(mono.len() * 2);
+    for &s in &mono { out.push(s); out.push(s); }
+    out
+}
+
+fn mix_inplace(dst: &mut [f32], src: &[f32]) {
+    let n = dst.len().min(src.len());
+    for i in 0..n { dst[i] = (dst[i] + src[i]).clamp(-1.0, 1.0); }
+}
+
+#[derive(Component)]
+struct Enemy {
+    movement: u8,
+    distance: i32,
+    phase: f32,
+    speed: f32,
+    shoot_time: i32,
+    kind: EnemyKind,
+}
+
+#[derive(Clone, Copy)]
+enum EnemyKind {
+    Basic,
+    Meteor,
+    Special,
+}
+
+#[derive(Component)]
+struct Bullet {
+    friendly: bool,
+    damage: i32,
+    laser: bool,
+}
+
+#[derive(Component, Deref, DerefMut)]
+struct Velocity(Vec2);
+
+#[derive(Component)]
+struct Collider {
+    w: f32,
+    h: f32,
+}
+
+#[derive(Component)]
+struct Health {
+    hp: i32,
+    max: i32,
+}
+
+#[derive(Component)]
+struct Charge {
+    value: f32,
+    max: f32,
+}
+
+
+#[derive(Component)]
+struct EngineFlame { timer: Timer }
+
+#[derive(Component)]
+struct Star { speed: f32 }
+
+#[derive(Component)]
+struct Lifetime { timer: Timer }
+
+#[derive(Component)]
+struct LaserFollowPlayer; // laser "ancorado" no X do player
+
+// ====== Helpers ======
+fn screen_to_world(p: Vec2) -> Vec2 {
+    // JS tinha (0,0) no canto superior esquerdo; mundo Bevy tem (0,0) no centro
+    Vec2::new(p.x - SCREEN_WIDTH / 2.0, SCREEN_HEIGHT / 2.0 - p.y)
+}
+
+fn clamp_to_screen(mut pos: Vec3, size: Vec2) -> Vec3 {
+    let half_w = size.x / 2.0;
+    let half_h = size.y / 2.0;
+    pos.x = pos.x.clamp(-SCREEN_WIDTH / 2.0 + half_w, SCREEN_WIDTH / 2.0 - half_w);
+    pos.y = pos.y.clamp(-SCREEN_HEIGHT / 2.0 + half_h, SCREEN_HEIGHT / 2.0 - half_h);
+    pos
+}
+
+
+
+// ====== Procedural meshes ======
+fn mesh_triangle() -> bevy::render::mesh::Mesh {
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    let positions = vec![
+        // tri apontado pra cima em espaço unitário
+        [0.0, 0.5, 0.0],
+        [-0.5, -0.5, 0.0],
+        [0.5, -0.5, 0.0],
+    ];
+    let normals = vec![[0.0, 0.0, 1.0]; 3];
+    let uvs = vec![[0.5, 1.0], [0.0, 0.0], [1.0, 0.0]];
+    let indices = Indices::U32(vec![0, 1, 2]);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(indices);
+    mesh
+}
+
+fn mesh_diamond() -> bevy::render::mesh::Mesh {
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    // losango em 2 triângulos
+    let positions = vec![
+        [0.0, 0.6, 0.0],  // 0 topo
+        [-0.4, 0.0, 0.0], // 1 esquerda
+        [0.0, -0.6, 0.0], // 2 baixo
+        [0.4, 0.0, 0.0],  // 3 direita
+    ];
+    let normals = vec![[0.0, 0.0, 1.0]; 4];
+    let uvs = vec![[0.5, 1.0], [0.0, 0.5], [0.5, 0.0], [1.0, 0.5]];
+    let indices = Indices::U32(vec![0, 1, 3, 1, 2, 3]);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(indices);
+    mesh
+}
+
+fn mesh_arrow() -> bevy::render::mesh::Mesh {
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    // flecha simples (cabeça triangular + corpo retangular simplificado por 2 triângulos)
+    let positions = vec![
+        // cabeça
+        [0.0, 0.6, 0.0],   // 0 topo
+        [-0.4, 0.1, 0.0],  // 1 esq
+        [0.4, 0.1, 0.0],   // 2 dir
+        // corpo (retângulo de -0.15..0.15 x -0.6..0.1)
+        [-0.15, 0.1, 0.0], // 3
+        [0.15, 0.1, 0.0],  // 4
+        [-0.15, -0.6, 0.0],// 5
+        [0.15, -0.6, 0.0], // 6
+    ];
+    let normals = vec![[0.0, 0.0, 1.0]; 7];
+    let uvs = vec![
+        [0.5, 1.0], [0.0, 0.6], [1.0, 0.6],
+        [0.4, 0.6], [0.6, 0.6], [0.4, 0.0], [0.6, 0.0],
+    ];
+    let indices = Indices::U32(vec![
+        0,1,2, // cabeça
+        3,5,4, // corpo tri 1
+        5,6,4, // corpo tri 2
+    ]);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(indices);
+    mesh
+}
+
+fn spawn_ship_visual(
+    parent: &mut ChildBuilder,
+    meshes: &mut Assets<bevy::render::mesh::Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    size: Vec2,
+    seed: u32,
+    base_color: Color,
+) {
+    let mut rng = StdRng::seed_from_u64(seed as u64);
+    let choice: u8 = rng.gen_range(0..3);
+    let mesh = match choice {
+        0 => mesh_triangle(),
+        1 => mesh_diamond(),
+        _ => mesh_arrow(),
+    };
+    let mesh_h = meshes.add(mesh);
+    let mat_h = materials.add(base_color);
+    parent.spawn(MaterialMesh2dBundle {
+        mesh: Mesh2dHandle(mesh_h),
+        material: mat_h,
+        transform: Transform::from_scale(Vec3::new(size.x, size.y, 1.0)),
+        ..default()
+    });
+}
+
+fn spawn_engine_glow(
+    parent: &mut ChildBuilder,
+    meshes: &mut Assets<bevy::render::mesh::Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    width: f32,
+) {
+use bevy::render::mesh::Mesh;
+    let mesh = Mesh::from(Rectangle { half_size: Vec2::new(0.5, 0.15), ..Default::default() });
+    let mesh_h = meshes.add(mesh);
+    let mat_h = materials.add(Color::rgb(1.0, 0.5, 0.1));
+    parent.spawn((
+        MaterialMesh2dBundle {
+            mesh: Mesh2dHandle(mesh_h),
+            material: mat_h,
+            transform: Transform::from_translation(Vec3::new(0.0, -0.6 * (SIZE_PLAYER.y / 2.0), 0.0))
+                .with_scale(Vec3::new(width, width, 1.0)),
+            ..default()
+        },
+        EngineFlame { timer: Timer::from_seconds(0.12, TimerMode::Repeating) },
+    ));
+}
+
+// ====== Setup ======
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    // câmera 2D
+    commands.spawn(Camera2dBundle::default());
+
+    // fundo preto
+    commands.insert_resource(ClearColor(Color::BLACK));
+
+    // recursos iniciais
+    commands.insert_resource(Score(0));
+    commands.insert_resource(FrameCounter(0));
+    commands.insert_resource(EnemyPopulation(0));
+    commands.insert_resource(CursorPos::default());
+    commands.insert_resource(Shake::default());
+    commands.insert_resource(Muted(false));
+    commands.insert_resource(AudioEngine::new());
+
+    // starfield
+    let mut rng = StdRng::seed_from_u64(42);
+    let _base_mat = materials.add(Color::WHITE);
+let base_mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() }));
+    for i in 0..180 {
+        let use_blue = i % 6 == 0;
+        let color = if use_blue { Color::rgb(0.6, 0.7, 1.0) } else { Color::WHITE };
+        let mat = materials.add(color);
+        let speed = rng.gen_range(0.15..0.5);
+        commands.spawn((
+            MaterialMesh2dBundle {
+                mesh: Mesh2dHandle(base_mesh.clone()),
+                material: mat,
+                transform: Transform::from_translation(Vec3::new(
+                    rng.gen_range(-SCREEN_WIDTH / 2.0..SCREEN_WIDTH / 2.0),
+                    rng.gen_range(-SCREEN_HEIGHT / 2.0..SCREEN_HEIGHT / 2.0),
+                    0.0,
+                ))
+                .with_scale(Vec3::splat(rng.gen_range(0.2..0.8))),
+                ..default()
+            },
+            Star { speed },
+        ));
+    }
+
+    // player
+    let player_pos = Vec3::new(0.0, -160.0, 10.0);
+    let mut player_entity = commands.spawn((
+        SpatialBundle { transform: Transform::from_translation(player_pos), ..default() },
+        Player,
+        Collider { w: SIZE_PLAYER.x, h: SIZE_PLAYER.y },
+        Health { hp: MAX_HEALTH, max: MAX_HEALTH },
+        Charge { value: MAX_CHARGE, max: MAX_CHARGE },
+        Name::new("Player"),
+    ));
+    player_entity.with_children(|c| {
+        spawn_ship_visual(c, &mut meshes, &mut materials, SIZE_PLAYER, 12345, Color::rgb(0.2, 0.5, 0.9));
+        spawn_engine_glow(c, &mut meshes, &mut materials, 0.8);
+    });
+}
+
+// ====== Systems ======
+fn track_frames(mut frames: ResMut<FrameCounter>) {
+    frames.0 = frames.0.wrapping_add(1);
+}
+
+fn update_cursor(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut cursor: ResMut<CursorPos>,
+) {
+    if let Ok(window) = windows.get_single() {
+        if let Some(p) = window.cursor_position() {
+            cursor.screen = p;
+            cursor.world = screen_to_world(p);
+        }
+    }
+}
+
+fn starfield_update(mut q: Query<(&mut Transform, &Star)>) {
+    let bottom = -SCREEN_HEIGHT / 2.0;
+    let top = SCREEN_HEIGHT / 2.0;
+    for (mut t, s) in &mut q {
+        t.translation.y -= s.speed;
+        if t.translation.y < bottom {
+            t.translation.y = top;
+            t.translation.x = thread_rng().gen_range(-SCREEN_WIDTH / 2.0..SCREEN_WIDTH / 2.0);
+        }
+    }
+}
+
+fn player_control(
+    time: Res<Time>,
+    cursor: Res<CursorPos>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut commands: Commands,
+    mut q_player: Query<(&mut Transform, &mut Health, &mut Charge, &Collider), With<Player>>,
+    mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    score: Res<Score>,
+    mut shake: ResMut<Shake>,
+    audio: Res<AudioEngine>,
+    muted: Res<Muted>,
+) {
+    let Ok((mut t, mut hp, mut charge, col)) = q_player.get_single_mut() else { return; };
+
+    // movimento: segue cursor com velocidade limitada
+    let target = cursor.world;
+    let dx = target.x - t.translation.x;
+    let dy = target.y - t.translation.y;
+    let dist = (dx * dx + dy * dy).sqrt().max(1.0);
+    let max_speed = 300.0; // px/s
+    if dist > 20.0 {
+        t.translation.x += dx * max_speed * time.delta_seconds() / dist;
+        t.translation.y += dy * max_speed * time.delta_seconds() / dist;
+    } else {
+        t.translation.x = target.x;
+        t.translation.y = target.y;
+    }
+
+    // dentro da tela
+    t.translation = clamp_to_screen(t.translation, Vec2::new(col.w, col.h));
+
+    // recarga & auto-heal leve quando cheio
+    charge.value = (charge.value + CHARGE_REFILL_PER_SEC * time.delta_seconds()).min(charge.max);
+    if charge.value >= charge.max && hp.hp < hp.max {
+        // ~0.06 HP/s
+        hp.hp = (hp.hp + (time.delta_seconds() * 3.6) as i32).min(hp.max);
+    }
+
+    // ataque primário (esq): míssil ou laser (>=500 pontos)
+    static mut SHOOT_COOL: f32 = 0.0; // simples cooldown global
+    unsafe { SHOOT_COOL = (SHOOT_COOL - time.delta_seconds()).max(0.0); }
+    let can_shoot = unsafe { SHOOT_COOL <= 0.0 };
+    if mouse.pressed(MouseButton::Left) && can_shoot && charge.value >= 1.0 {
+        unsafe { SHOOT_COOL = 0.08; }
+        charge.value -= 1.0;
+        if score.0 >= 500 {
+            // laser
+            let laser_color = Color::rgb(0.0, 1.0, 1.0);
+let mesh = Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() });
+            let mesh_h = meshes.add(mesh);
+            let mat_h = materials.add(laser_color);
+            let y = t.translation.y + (SIZE_PLAYER.y / 2.0) - 10.0;
+            commands.spawn((
+                MaterialMesh2dBundle {
+                    mesh: Mesh2dHandle(mesh_h),
+                    material: mat_h,
+                    transform: Transform::from_translation(Vec3::new(t.translation.x, y, 5.0))
+                        .with_scale(Vec3::new(SIZE_LASER.x, SIZE_LASER.y, 1.0)),
+                    ..default()
+                },
+                Bullet { friendly: true, damage: 2, laser: true },
+                Collider { w: SIZE_LASER.x, h: SIZE_LASER.y },
+                Velocity(Vec2::new(0.0, 0.0)),
+                LaserFollowPlayer,
+                Lifetime { timer: Timer::from_seconds(0.8, TimerMode::Once) },
+                Name::new("Laser"),
+            ));
+            if !muted.0 { let level = (score.0 as f32).clamp(0.0, 3000.0); let end = 1000.0 + level * 0.2; audio.laser_sweep(500.0, end.min(2200.0)); }
+        } else {
+            // míssil
+            spawn_missile(&mut commands, &mut meshes, &mut materials, Vec2::new(t.translation.x, t.translation.y - 5.0), Vec2::new(0.0, 500.0), true);
+            if !muted.0 { let level = (score.0 as f32).clamp(0.0, 2000.0); let jitter: f32 = (rand::random::<f32>() - 0.5) * 0.1; audio.shoot_pitch(1.0 + level * 0.0003 + jitter); }
+        }
+    }
+
+    // ataque especial (dir): pulso em círculo
+    static mut SPECIAL_COOL: f32 = 0.0;
+    unsafe { SPECIAL_COOL = (SPECIAL_COOL - time.delta_seconds()).max(0.0); }
+    if mouse.pressed(MouseButton::Right) && unsafe { SPECIAL_COOL <= 0.0 } {
+        if charge.value >= MAX_CHARGE {
+            unsafe { SPECIAL_COOL = 0.6; }
+            charge.value = 0.0;
+            for a in (0..628).step_by(6) { // 0..2pi em passos ~0.06 rad
+                let ang = a as f32 / 100.0;
+                let v = Vec2::new(ang.cos(), ang.sin()) * 600.0;
+                spawn_missile(&mut commands, &mut meshes, &mut materials, Vec2::new(t.translation.x, t.translation.y), v, true);
+            }
+            shake.intensity = 6.0;
+            shake.frames = 50;
+            if !muted.0 { audio.special(); }
+        } else if charge.value >= 150.0 {
+            unsafe { SPECIAL_COOL = 0.25; }
+            charge.value -= 50.0;
+            for a in (0..628).step_by(20) {
+                let ang = a as f32 / 100.0;
+                let v = Vec2::new(ang.cos(), ang.sin()) * 400.0;
+                spawn_missile(&mut commands, &mut meshes, &mut materials, Vec2::new(t.translation.x, t.translation.y), v, true);
+            }
+            if !muted.0 { audio.special(); }
+        }
+    }
+}
+
+fn spawn_missile(
+    commands: &mut Commands,
+    meshes: &mut Assets<bevy::render::mesh::Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    pos: Vec2,
+    vel: Vec2,
+    friendly: bool,
+) {
+use bevy::render::mesh::Mesh;
+    let mesh = Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() });
+    let mesh_h = meshes.add(mesh);
+    let color = if friendly { Color::rgb(0.9, 0.9, 0.9) } else { Color::rgb(1.0, 0.4, 0.4) };
+    let mat_h = materials.add(color);
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: Mesh2dHandle(mesh_h),
+            material: mat_h,
+            transform: Transform::from_translation(Vec3::new(pos.x, pos.y, 4.0))
+                .with_scale(Vec3::new(SIZE_MISSILE.x, SIZE_MISSILE.y, 1.0)),
+            ..default()
+        },
+        Bullet { friendly, damage: 1, laser: false },
+        Collider { w: SIZE_MISSILE.x, h: SIZE_MISSILE.y },
+        Velocity(Vec2::new(vel.x, vel.y)),
+        Name::new(if friendly { "Missile(F)" } else { "Missile(E)" }),
+    ));
+}
+
+fn follow_laser_to_player(
+    mut sets: ParamSet<(
+        Query<&Transform, With<Player>>,
+        Query<&mut Transform, (With<Bullet>, With<LaserFollowPlayer>)>,
+    )>,
+) {
+    let player_x = sets.p0().get_single().ok().map(|t| t.translation.x);
+    if let Some(px) = player_x {
+        for mut t in sets.p1().iter_mut() {
+            t.translation.x = px;
+        }
+    }
+}
+
+fn move_bullets(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut Transform, &Velocity, &Bullet)>,
+) {
+    for (e, mut t, v, b) in &mut q {
+        if b.laser {
+            // laser sobe um pouco (o Lifetime remove depois)
+            t.translation.y += -700.0 * time.delta_seconds();
+        } else {
+            t.translation += Vec3::new(v.x, v.y, 0.0) * time.delta_seconds();
+        }
+        if t.translation.x < -SCREEN_WIDTH/2.0 - 10.0 || t.translation.x > SCREEN_WIDTH/2.0 + 10.0 ||
+           t.translation.y < -SCREEN_HEIGHT/2.0 - 10.0 || t.translation.y > SCREEN_HEIGHT/2.0 + 10.0 {
+            commands.entity(e).despawn_recursive();
+        }
+    }
+}
+
+fn lifetime_cleanup(time: Res<Time>, mut commands: Commands, mut q: Query<(Entity, &mut Lifetime)>) {
+    for (e, mut lt) in &mut q {
+        lt.timer.tick(time.delta());
+        if lt.timer.finished() { commands.entity(e).despawn_recursive(); }
+    }
+}
+
+fn enemy_spawner(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    frames: Res<FrameCounter>,
+    mut last_spawn_frame: Local<u64>,
+    mut pop: ResMut<EnemyPopulation>,
+    score: Res<Score>,
+) {
+    let mut rng = thread_rng();
+    let mut possib = |offset: u64, prob: i32| -> bool {
+        ((frames.0 + offset) % 180 == 0) && (rng.gen_range(0..100) < prob)
+    };
+    let mut mark = false;
+
+    // tipo 1
+    if possib(0, 35) {
+        let kind = if score.0 >= 500 { EnemyKind::Special } else { EnemyKind::Basic };
+        spawn_enemy(&mut commands, &mut meshes, &mut materials, kind);
+        mark = true;
+    }
+    // tipo 2
+    if possib(100, 35) {
+        let kind = if score.0 >= 500 { EnemyKind::Special } else { EnemyKind::Basic };
+        spawn_enemy(&mut commands, &mut meshes, &mut materials, kind);
+        mark = true;
+    }
+    // meteoro shower
+    if possib(200, 35) {
+        for _ in 0..50 { spawn_enemy(&mut commands, &mut meshes, &mut materials, EnemyKind::Meteor); }
+        mark = true;
+    }
+    // extra
+    if possib(300, 35) {
+        spawn_enemy(&mut commands, &mut meshes, &mut materials, EnemyKind::Basic);
+        mark = true;
+    }
+    // fallback a cada ~3s: garante inimigos
+    if frames.0.saturating_sub(*last_spawn_frame) > 180 {
+        spawn_enemy(&mut commands, &mut meshes, &mut materials, EnemyKind::Basic);
+        mark = true;
+    }
+    if mark { *last_spawn_frame = frames.0; }
+
+    // update população
+    // nota: populaçao real é derivada, mas mantemos aproximado
+    pop.0 = pop.0.saturating_add(0); // placeholder para futuros limites
+}
+
+fn spawn_enemy(
+    commands: &mut Commands,
+    meshes: &mut Assets<bevy::render::mesh::Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+    kind: EnemyKind,
+) {
+    let mut rng = thread_rng();
+    let x = rng.gen_range(-SCREEN_WIDTH/2.0 + 30.0..SCREEN_WIDTH/2.0 - 30.0);
+    let y = rng.gen_range(140.0..180.0); // perto do topo (mundo)
+    let (size, hp, color, speed) = match kind {
+        EnemyKind::Basic => (SIZE_ENEMY, ENEMY_HEALTH, Color::rgb(1.0, 0.3, 0.3), rng.gen_range(70.0..120.0)),
+        EnemyKind::Meteor => (SIZE_METEOR, 1, Color::rgb(0.7, 0.6, 0.4), rng.gen_range(80.0..160.0)),
+        EnemyKind::Special => (Vec2::new(100.0, 20.0), 8, Color::rgb(0.6, 0.5, 0.5), rng.gen_range(40.0..70.0)),
+    };
+
+    let mut e = commands.spawn((
+        SpatialBundle { transform: Transform::from_translation(Vec3::new(x, y, 9.0)), ..default() },
+        Enemy { movement: rng.gen_range(0..8), distance: rng.gen_range(20..70), phase: rng.gen_range(0.0..(std::f32::consts::TAU)), speed: speed / 100.0, shoot_time: rng.gen_range(20..120), kind },
+        Collider { w: size.x, h: size.y },
+        Health { hp, max: hp },
+        Name::new("Enemy"),
+    ));
+    e.with_children(|c| {
+        let seed = rng.gen();
+        spawn_ship_visual(c, meshes, materials, size, seed, color);
+    });
+}
+
+fn enemy_behavior(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut Transform, &mut Enemy, &Collider), Without<Player>>,
+    q_player: Query<&Transform, With<Player>>,
+    mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let player_t = q_player.get_single().ok().map(|t| t.translation);
+    for (entity, mut t, mut e, col) in &mut q {
+        let old = t.translation;
+        // movimento
+        match e.movement {
+            0 => t.translation.y -= 60.0 * e.speed * time.delta_seconds(), // desce
+            1 => t.translation.y += 60.0 * e.speed * time.delta_seconds(), // sobe
+            2 => t.translation.x -= 60.0 * e.speed * time.delta_seconds(),
+            3 => t.translation.x += 60.0 * e.speed * time.delta_seconds(),
+            4 => { t.translation.y -= 42.0 * e.speed * time.delta_seconds(); e.phase += 0.1; t.translation.x += (e.phase).sin() * 1.5; }
+            5 => { t.translation.x += 42.0 * e.speed * time.delta_seconds(); e.phase += 0.1; t.translation.y += (e.phase).sin() * 1.5; }
+            6 => { t.translation.y -= 72.0 * e.speed * time.delta_seconds(); e.phase += 0.25; t.translation.x += (e.phase).sin() * 2.6; }
+            7 => {
+                if let Some(pt) = player_t {
+                    let dx = pt.x - t.translation.x; let dy = pt.y - t.translation.y; let ang = dy.atan2(dx);
+                    t.translation.x += ang.cos() * 0.6 * 60.0 * e.speed * time.delta_seconds();
+                    t.translation.y += ang.sin() * 0.6 * 60.0 * e.speed * time.delta_seconds();
+                    t.translation.x += (ang + std::f32::consts::FRAC_PI_2).cos() * 0.8;
+                }
+            }
+            _ => {}
+        }
+        if e.distance > 0 { e.distance -= 1; } else { e.distance = thread_rng().gen_range(20..70); e.movement = thread_rng().gen_range(0..8); e.phase = 0.0; }
+
+        // limites da tela (mantém mais dentro)
+        if t.translation.y > SCREEN_HEIGHT/2.0 - 20.0 { e.movement = 0; e.distance = 10; }
+        if t.translation.y < -SCREEN_HEIGHT/2.0 + 20.0 { e.movement = 1; e.distance = 10; }
+        if t.translation.x > SCREEN_WIDTH/2.0 - 20.0 { e.movement = 2; e.distance = 10; }
+        if t.translation.x < -SCREEN_WIDTH/2.0 + 20.0 { e.movement = 3; e.distance = 10; }
+
+        // tiro de inimigo (não atira se meteoro)
+        if !matches!(e.kind, EnemyKind::Meteor) {
+            if e.shoot_time <= 0 {
+                e.shoot_time = thread_rng().gen_range(20..180);
+                // 2 balas
+                let bx = t.translation.x;
+                let by = t.translation.y - col.h / 2.0;
+                spawn_missile(&mut commands, &mut meshes, &mut materials, Vec2::new(bx - 9.0, by - 10.0), Vec2::new(0.0, -180.0), false);
+                spawn_missile(&mut commands, &mut meshes, &mut materials, Vec2::new(bx + 9.0, by - 10.0), Vec2::new(0.0, -180.0), false);
+            } else {
+                e.shoot_time -= 1;
+            }
+        }
+
+        // se sair muito da tela, remove
+        if t.translation.y < -SCREEN_HEIGHT/2.0 - 30.0 || t.translation.x < -SCREEN_WIDTH/2.0 - 30.0 || t.translation.x > SCREEN_WIDTH/2.0 + 30.0 {
+            commands.entity(entity).despawn_recursive();
+            continue;
+        }
+
+        // leve "bank" visual: aqui omitimos, pois não rotacionamos mesh infantil
+        let _vx = t.translation.x - old.x; let _vy = t.translation.y - old.y; let _ = (_vx, _vy);
+    }
+}
+
+fn collisions_and_damage(
+    mut commands: Commands,
+    mut score: ResMut<Score>,
+    mut shake: ResMut<Shake>,
+    mut sets: ParamSet<(
+        Query<(Entity, &GlobalTransform, &Collider, &mut Health), With<Player>>,
+        Query<(Entity, &GlobalTransform, &Collider, &mut Health, &Enemy)>,
+        Query<(Entity, &GlobalTransform, &Collider, &Bullet)>,
+    )>,
+    audio: Res<AudioEngine>,
+    muted: Res<Muted>,
+) {
+    use std::collections::HashSet;
+    // Snapshot bullets to avoid overlapping ParamSet borrows
+    let bullets: Vec<(Entity, f32, f32, f32, f32, i32, bool)> = sets
+        .p2()
+        .iter()
+        .map(|(e, t, c, b)| (e, t.translation().x, t.translation().y, c.w, c.h, b.damage, b.friendly))
+        .collect();
+    let mut removed_bullets: HashSet<Entity> = HashSet::new();
+    let mut removed_enemies: HashSet<Entity> = HashSet::new();
+
+    // friendly bullets x enemies
+    for (be, bx, by, bw, bh, dmg, _friendly) in bullets.iter().copied().filter(|b| b.6) {
+        if removed_bullets.contains(&be) { continue; }
+        for (ee, et, ec, mut eh, enemy) in sets.p1().iter_mut() {
+            if removed_enemies.contains(&ee) { continue; }
+            let ex = et.translation().x;
+            let ey = et.translation().y;
+            let dx = (bx - ex).abs() - (bw / 2.0) - (ec.w / 2.0);
+            let dy = (by - ey).abs() - (bh / 2.0) - (ec.h / 2.0);
+            if dx <= 0.0 && dy <= 0.0 {
+                eh.hp -= dmg;
+                commands.entity(be).despawn_recursive();
+                removed_bullets.insert(be);
+                if eh.hp <= 0 {
+                    score.0 += match enemy.kind { EnemyKind::Basic => POINTS_ENEMY, EnemyKind::Meteor => POINTS_METEOR, EnemyKind::Special => POINTS_SPECIAL };
+                    let (intensity, frames) = if matches!(enemy.kind, EnemyKind::Special) { (3.0, 24) } else { (1.5, 8) };
+                    shake.intensity = intensity;
+                    shake.frames = frames;
+                    commands.entity(ee).despawn_recursive();
+                    removed_enemies.insert(ee);
+                    if !muted.0 { audio.explosion(); }
+                }
+                break;
+            }
+        }
+    }
+
+    // enemy bullets x player
+    if let Ok((pe, pt, pc, mut php)) = sets.p0().get_single_mut() {
+        let px = pt.translation().x;
+        let py = pt.translation().y;
+        for (be, bx, by, bw, bh, dmg, _friendly) in bullets.iter().copied().filter(|b| !b.6) {
+            if removed_bullets.contains(&be) { continue; }
+            let dx = (bx - px).abs() - (bw / 2.0) - (pc.w / 2.0);
+            let dy = (by - py).abs() - (bh / 2.0) - (pc.h / 2.0);
+            if dx <= 0.0 && dy <= 0.0 {
+                php.hp -= dmg;
+                shake.intensity = 2.0;
+                shake.frames = 10;
+                commands.entity(be).despawn_recursive();
+                removed_bullets.insert(be);
+                if !muted.0 { audio.hit(); }
+                if php.hp <= 0 {
+                    commands.entity(pe).despawn_recursive();
+                }
+            }
+        }
+    }
+}
+
+fn engine_flame_pulse(time: Res<Time>, mut q: Query<(&mut EngineFlame, &Handle<ColorMaterial>)>, mut materials: ResMut<Assets<ColorMaterial>>) {
+    for (mut ef, mat_h) in &mut q {
+        ef.timer.tick(time.delta());
+        if ef.timer.just_finished() {
+            if let Some(mat) = materials.get_mut(mat_h) {
+                // pequeno pulso emissivo (simulado via cor)
+                let t = (std::time::Instant::now().elapsed().as_secs_f32() * 6.0).sin() * 0.3 + 0.7;
+                mat.color = Color::rgb(1.0 * t, 0.5 * t, 0.1 * t);
+            }
+        }
+    }
+}
+
+fn camera_shake(mut q_cam: Query<&mut Transform, With<Camera>>, mut shake: ResMut<Shake>) {
+    if let Ok(mut t) = q_cam.get_single_mut() {
+        if shake.frames > 0 {
+            t.translation.x = (random::<f32>() - 0.5) * shake.intensity;
+            t.translation.y = (random::<f32>() - 0.5) * shake.intensity;
+            shake.frames -= 1;
+        } else {
+            t.translation.x = 0.0;
+            t.translation.y = 0.0;
+        }
+    }
+}
+
+fn check_game_over(
+    mut next_state: ResMut<NextState<GamePhase>>,
+    q_player: Query<(), With<Player>>,
+    mut local_timer: Local<Option<Timer>>,
+    time: Res<Time>,
+) {
+    // quando player não existe mais, inicia um delay (~1.5s) e então GameOver
+    if q_player.get_single().is_err() {
+        if local_timer.is_none() {
+            *local_timer = Some(Timer::from_seconds(1.5, TimerMode::Once));
+        }
+    }
+    if let Some(timer) = local_timer.as_mut() {
+        timer.tick(time.delta());
+        if timer.finished() {
+            next_state.set(GamePhase::GameOver);
+            *local_timer = None;
+        }
+    }
+}
+
+fn pause_input(mut next_state: ResMut<NextState<GamePhase>>, kb: Res<ButtonInput<KeyCode>>, state: Res<State<GamePhase>>) {
+    if kb.just_pressed(KeyCode::KeyP) {
+        match state.get() {
+            GamePhase::Running => next_state.set(GamePhase::Paused),
+            GamePhase::Paused => next_state.set(GamePhase::Running),
+            GamePhase::GameOver => {},
+        }
+    }
+}
+
+fn toggle_mute(kb: Res<ButtonInput<KeyCode>>, mut muted: ResMut<Muted>) {
+    if kb.just_pressed(KeyCode::KeyM) { muted.0 = !muted.0; }
+}
+
+fn restart_on_click(
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut next_state: ResMut<NextState<GamePhase>>,
+    mut commands: Commands,
+    q_entities: Query<Entity>,
+    meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
+    materials: ResMut<Assets<ColorMaterial>>,
+) {
+    if mouse.just_pressed(MouseButton::Left) {
+        for e in q_entities.iter() { commands.entity(e).despawn_recursive(); }
+        // re-seed setup completo (inclui câmera e recursos)
+        setup(commands, meshes, materials);
+        next_state.set(GamePhase::Running);
+    }
+}
+
+// HUD / overlays via egui
+fn ui_system(
+    mut ctxs: EguiContexts,
+    score: Res<Score>,
+    cursor: Res<CursorPos>,
+    state: Res<State<GamePhase>>,
+    q_player: Query<(&Health, &Charge), With<Player>>,
+    muted: Res<Muted>,
+) {
+    let ctx = ctxs.ctx_mut();
+
+    // Top-left HUD
+    egui::Window::new(egui::RichText::new("HUD").strong()).title_bar(false).fixed_pos(egui::pos2(8.0, 8.0)).show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(format!("Score: {}", score.0)).heading());
+        });
+        if let Ok((hp, ch)) = q_player.get_single() {
+            // barras
+            progress_bar(ui, "Health", hp.hp as f32 / hp.max as f32, egui::Color32::from_rgb(255, 64, 64));
+            progress_bar(ui, "Charge", ch.value / ch.max, egui::Color32::from_rgb(64, 128, 255));
+        } else {
+            progress_bar(ui, "Health", 0.0, egui::Color32::from_rgb(255, 64, 64));
+            progress_bar(ui, "Charge", 0.0, egui::Color32::from_rgb(64, 128, 255));
+        }
+        ui.label(if muted.0 { "Muted: ON (tecla M)" } else { "Muted: OFF (tecla M)" });
+        ui.small(format!("Cursor: {:.0},{:.0}", cursor.screen.x, cursor.screen.y));
+        ui.small("P: Pause • M: Mute");
+    });
+
+    // overlays centrais
+    match state.get() {
+        GamePhase::Paused => {
+            egui::Area::new("paused").fixed_pos(center_text_pos(ctx, "PAUSED")).show(ctx, |ui| {
+                ui.label(egui::RichText::new("PAUSED").size(48.0));
+            });
+        }
+        GamePhase::GameOver => {
+            egui::Area::new("game_over").fixed_pos(center_text_pos(ctx, "GAME OVER")).show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.label(egui::RichText::new("GAME OVER").size(48.0));
+                    ui.add_space(8.0);
+                    ui.label("Clique para reiniciar");
+                });
+            });
+        }
+        _ => {}
+    }
+}
+
+fn center_text_pos(ctx: &egui::Context, _text: &str) -> egui::Pos2 {
+    let rect = ctx.input(|i| i.screen_rect);
+    egui::pos2(rect.center().x - 120.0, rect.center().y - 40.0)
+}
+
+fn progress_bar(ui: &mut egui::Ui, label: &str, frac: f32, color: egui::Color32) {
+    let frac = frac.clamp(0.0, 1.0);
+    ui.label(label);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(220.0, 18.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 3.0, egui::Color32::from_black_alpha(64));
+    let fill = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width() * frac, rect.height()));
+    ui.painter().rect_filled(fill, 3.0, color);
+}
+
+fn run_if_running() -> impl FnMut(Option<Res<State<GamePhase>>>) -> bool + Clone {
+    |state: Option<Res<State<GamePhase>>>| match state.map(|s| *s.get()).unwrap_or(GamePhase::Running) {
+        GamePhase::Running => true,
+        _ => false,
+    }
+}
+
+fn main() {
+    App::new()
+        .add_plugins(
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Jogo Tosco de dar Tiro (Rust + Bevy)".into(),
+                    resolution: (SCREEN_WIDTH, SCREEN_HEIGHT).into(),
+                    resizable: true,
+                    ..default()
+                }),
+                ..default()
+            })
+        )
+        .add_plugins(EguiPlugin)
+        .insert_state(GamePhase::Running)
+        .add_systems(Startup, setup)
+        .add_systems(Update, (
+            track_frames,
+            update_cursor,
+            starfield_update,
+            ui_system,
+            toggle_mute,
+            pause_input,
+        ))
+        // gameplay quando Running
+        .add_systems(Update, (
+            player_control,
+            follow_laser_to_player,
+            move_bullets,
+            lifetime_cleanup,
+            enemy_spawner,
+            enemy_behavior,
+            collisions_and_damage,
+            engine_flame_pulse,
+            camera_shake,
+            check_game_over,
+        ).run_if(run_if_running()))
+        // restart quando GameOver
+        .add_systems(Update, restart_on_click.run_if(in_state(GamePhase::GameOver)))
+        .run();
+}
