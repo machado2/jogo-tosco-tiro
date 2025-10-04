@@ -4,6 +4,7 @@ use crate::core::{Score, Shake, Muted, GamePhase};
 use crate::input::{CursorPos, InputActions};
 use crate::gameplay::components::{Health, Charge, Collider, Velocity, Lifetime, LaserFollowPlayer};
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
+use bevy::window::PrimaryWindow;
 use crate::audio::AudioEngine;
 use crate::effects::emit_burst;
 use crate::gameplay::combat::{spawn_missile, Bullet};
@@ -37,6 +38,7 @@ fn player_control(
     mut shake: ResMut<Shake>,
     audio: Res<crate::audio::AudioEngine>,
     muted: Res<Muted>,
+    windows: Query<&Window, With<PrimaryWindow>>,
 ) {
     let Ok((_entity, mut t, mut hp, mut charge, col, mut cooldowns)) = q_player.get_single_mut() else { return; };
 
@@ -57,8 +59,17 @@ fn player_control(
         t.translation.x = target.x;
         t.translation.y = target.y;
     }
-    // dentro da tela
-t.translation = crate::util::clamp_to_screen(t.translation, Vec2::new(col.w, col.h));
+    // dentro da janela atual
+    if let Ok(window) = windows.get_single() {
+        let half_w = col.w / 2.0;
+        let half_h = col.h / 2.0;
+        let w = window.width();
+        let h = window.height();
+        t.translation.x = t.translation.x.clamp(-w / 2.0 + half_w, w / 2.0 - half_w);
+        t.translation.y = t.translation.y.clamp(-h / 2.0 + half_h, h / 2.0 - half_h);
+    } else {
+        t.translation = crate::util::clamp_to_screen(t.translation, Vec2::new(col.w, col.h));
+    }
 
     // recarga & auto-heal leve quando cheio
     charge.value = (charge.value + CHARGE_REFILL_PER_SEC * time.delta_seconds()).min(charge.max);
