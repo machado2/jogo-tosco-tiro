@@ -54,16 +54,19 @@ pub fn spawn_missile(
     vel: Vec2,
     friendly: bool,
 ) {
-    let mesh = Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() });
+    // Mesh procedural para o míssil: flecha para aliados, losango para inimigos
+    let mesh = if friendly { crate::rendering::mesh_arrow() } else { crate::rendering::mesh_diamond() };
     let mesh_h = meshes.add(mesh);
     let color = if friendly { Color::rgb(0.9, 0.9, 0.9) } else { Color::rgb(1.0, 0.4, 0.4) };
     let mat_h = materials.add(ColorMaterial { color, ..default() });
+    let ang = vel.y.atan2(vel.x);
     let mut e = commands.spawn((
         MaterialMesh2dBundle {
             mesh: Mesh2dHandle(mesh_h),
             material: mat_h,
             transform: Transform::from_translation(Vec3::new(pos.x, pos.y, 4.0))
-                .with_scale(Vec3::new(SIZE_MISSILE.x, SIZE_MISSILE.y, 1.0)),
+                .with_scale(Vec3::new(SIZE_MISSILE.x, SIZE_MISSILE.y, 1.0))
+                .with_rotation(Quat::from_rotation_z(ang - std::f32::consts::FRAC_PI_2)),
             ..default()
         },
         Bullet { friendly, damage: 1, laser: false },
@@ -72,14 +75,15 @@ pub fn spawn_missile(
         TrailTimer(Timer::from_seconds(0.045, TimerMode::Repeating)),
         Name::new(if friendly { "Missile(F)" } else { "Missile(E)" }),
     ));
-    // halo glow como filho
+    // halo glow como filho, alongado
     e.with_children(|c| {
-        let gmesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(1.0), ..Default::default() }));
-        let gmat = materials.add(ColorMaterial { color: Color::rgba(1.8, 1.2, 0.6, 0.7), ..default() });
+        let gmesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(0.6, 1.2), ..Default::default() }));
+        let gcolor = if friendly { Color::rgba(1.0, 1.8, 2.0, 0.6) } else { Color::rgba(2.0, 1.0, 0.8, 0.6) };
+        let gmat = materials.add(ColorMaterial { color: gcolor, ..default() });
         c.spawn(MaterialMesh2dBundle {
             mesh: Mesh2dHandle(gmesh),
             material: gmat,
-            transform: Transform::from_scale(Vec3::new(1.2, 1.2, 1.0)),
+            transform: Transform::from_scale(Vec3::new(1.0, 1.0, 1.0)),
             ..default()
         });
     });

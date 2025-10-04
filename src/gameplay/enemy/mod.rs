@@ -84,8 +84,7 @@ pub enum FiringPattern {
     Burst { bullet_count: u32, burst_delay: f32 },
 }
 
-// Temp references until we migrate ship visuals to rendering module
-struct ShipBounds { width_units: f32, height_units: f32 }
+use crate::rendering::{spawn_ship_visual, ShipBounds};
 
 fn enemy_spawner(
     mut commands: Commands,
@@ -245,19 +244,8 @@ fn spawn_enemy_typed(
     let mut bounds: Option<ShipBounds> = None;
     e.with_children(|c| {
         let seed: u32 = rng.gen();
-        // TODO: Use spawn_ship_visual from rendering module
-        // let b = spawn_ship_visual(c, meshes, materials, size, seed, color);
-        // bounds = Some(b);
-        // For now, just use placeholder visual
-        let mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() }));
-        let mat = materials.add(ColorMaterial { color, ..default() });
-        c.spawn(MaterialMesh2dBundle {
-            mesh: Mesh2dHandle(mesh),
-            material: mat,
-            transform: Transform::from_scale(Vec3::new(size.x, size.y, 1.0)),
-            ..default()
-        });
-        bounds = Some(ShipBounds { width_units: 1.0, height_units: 1.0 });
+        let b = spawn_ship_visual(c, meshes, materials, size, seed, color);
+        bounds = Some(b);
     });
     drop(e);
     if let Some(b) = bounds { 
