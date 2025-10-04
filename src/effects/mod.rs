@@ -1,11 +1,11 @@
-use bevy::prelude::*;
-use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
-use bevy::render::mesh::Mesh;
-use bevy::math::primitives::Rectangle;
-use rand::Rng;
 use crate::core::GamePhase;
-use crate::gameplay::components::{Lifetime, Charge};
+use crate::gameplay::components::{Charge, Lifetime};
 use crate::gameplay::player::Player;
+use bevy::math::primitives::Rectangle;
+use bevy::prelude::*;
+use bevy::render::mesh::Mesh;
+use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
+use rand::Rng;
 
 pub struct EffectsPlugin;
 impl Plugin for EffectsPlugin {
@@ -73,25 +73,44 @@ pub fn emit_burst(
         let vy = ang.sin() * spd;
         let sz = rng.gen_range(size.start..size.end);
         let life = rng.gen_range(0.35..0.65);
-        let mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() }));
-        let mat = materials.add(ColorMaterial { color: Color::rgba(color.r() * 1.6, color.g() * 1.6, color.b() * 1.6, 0.95), ..default() });
+        let mesh = meshes.add(Mesh::from(Rectangle {
+            half_size: Vec2::splat(0.5),
+            }));
+        let mat = materials.add(ColorMaterial {
+            color: Color::rgba(color.r() * 1.6, color.g() * 1.6, color.b() * 1.6, 0.95),
+            ..default()
+        });
         commands.spawn((
             MaterialMesh2dBundle {
                 mesh: Mesh2dHandle(mesh),
                 material: mat,
-                transform: Transform::from_translation(Vec3::new(pos.x, pos.y, 7.0)).with_scale(Vec3::splat(sz)),
+                transform: Transform::from_translation(Vec3::new(pos.x, pos.y, 7.0))
+                    .with_scale(Vec3::splat(sz)),
                 ..default()
             },
-            Particle2D { vel: Vec2::new(vx, vy), life, total: life, start: color * 1.2, end: Color::rgba(0.0, 0.0, 0.0, 0.0), spin: rng.gen_range(-6.0..6.0) },
+            Particle2D {
+                vel: Vec2::new(vx, vy),
+                life,
+                total: life,
+                start: color * 1.2,
+                end: Color::rgba(0.0, 0.0, 0.0, 0.0),
+                spin: rng.gen_range(-6.0..6.0),
+            },
         ));
     }
 }
 
-fn lifetime_cleanup(time: Res<Time>, mut commands: Commands, mut q: Query<(Entity, &mut Lifetime)>) {
+fn lifetime_cleanup(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut Lifetime)>,
+) {
     for (e, mut lt) in &mut q {
         lt.timer.tick(time.delta());
         if lt.timer.finished() {
-            if let Some(ecmd) = commands.get_entity(e) { ecmd.despawn_recursive(); }
+            if let Some(ecmd) = commands.get_entity(e) {
+                ecmd.despawn_recursive();
+            }
         }
     }
 }
@@ -99,14 +118,21 @@ fn lifetime_cleanup(time: Res<Time>, mut commands: Commands, mut q: Query<(Entit
 fn update_particles(
     time: Res<Time>,
     mut commands: Commands,
-    mut q: Query<(Entity, &mut Transform, &mut Particle2D, &Handle<ColorMaterial>)>,
+    mut q: Query<(
+        Entity,
+        &mut Transform,
+        &mut Particle2D,
+        &Handle<ColorMaterial>,
+    )>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let dt = time.delta_seconds();
     for (e, mut t, mut p, mat_h) in &mut q {
         p.life -= dt;
         if p.life <= 0.0 {
-            if let Some(mut ecmd) = commands.get_entity(e) { ecmd.insert(ToDespawn); }
+            if let Some(mut ecmd) = commands.get_entity(e) {
+                ecmd.insert(ToDespawn);
+            }
             continue;
         }
         // update pos/vel
@@ -144,18 +170,18 @@ fn update_trails(
             ecmd.despawn_recursive();
         }
     }
-    
+
     for (entity, transform, mut trail) in q.iter_mut() {
         let current_pos = Vec2::new(transform.translation().x, transform.translation().y);
-        
+
         // Add current position to trail
         trail.positions.push(current_pos);
-        
+
         // Keep trail at max length
         if trail.positions.len() > trail.max_length {
             trail.positions.remove(0);
         }
-        
+
         // Render trail segments with gradient
         let len = trail.positions.len();
         if len >= 2 {
@@ -163,17 +189,19 @@ fn update_trails(
                 let progress = i as f32 / len.max(1) as f32;
                 let alpha = progress * 0.6;
                 let scale_factor = 0.3 + progress * 0.7;
-                
+
                 let start = trail.positions[i];
                 let end = trail.positions[i + 1];
                 let mid = (start + end) * 0.5;
                 let delta = end - start;
                 let length = delta.length();
-                
+
                 if length > 0.1 {
                     let angle = delta.y.atan2(delta.x);
-                    
-                    let mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(length * 0.5, 1.5), ..Default::default() }));
+
+                    let mesh = meshes.add(Mesh::from(Rectangle {
+                        half_size: Vec2::new(length * 0.5, 1.5),
+                        }));
                     let color = Color::rgba(
                         trail.color.r() * (0.3 + progress * 0.7),
                         trail.color.g() * (0.3 + progress * 0.7),
@@ -181,7 +209,7 @@ fn update_trails(
                         alpha,
                     );
                     let mat = materials.add(ColorMaterial { color, ..default() });
-                    
+
                     commands.spawn((
                         MaterialMesh2dBundle {
                             mesh: Mesh2dHandle(mesh),
@@ -191,7 +219,10 @@ fn update_trails(
                                 .with_scale(Vec3::new(1.0, scale_factor, 1.0)),
                             ..default()
                         },
-                        TrailSegment { index: i, parent_entity: entity },
+                        TrailSegment {
+                            index: i,
+                            parent_entity: entity,
+                        },
                     ));
                 }
             }
@@ -216,7 +247,16 @@ fn player_trail(
             if speed > 30.0 {
                 let factor = (charge.value / charge.max).clamp(0.0, 1.0);
                 let base = Color::rgba(0.3 + 0.5 * factor, 0.6 + 0.3 * factor, 1.2, 1.0);
-                emit_burst(&mut commands, &mut meshes, &mut materials, pos, base, 2, 60.0..120.0, 0.01..0.03);
+                emit_burst(
+                    &mut commands,
+                    &mut meshes,
+                    &mut materials,
+                    pos,
+                    base,
+                    2,
+                    60.0..120.0,
+                    0.01..0.03,
+                );
             }
         }
         *last = Some(pos);

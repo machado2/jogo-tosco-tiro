@@ -15,3 +15,7 @@ Thumbs.db
 # Node modules (if you ever add build tools)
 node_modules/
 target/
+
+# Trunk build artifacts
+dist/
+.trunk/

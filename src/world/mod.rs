@@ -1,13 +1,15 @@
-use bevy::prelude::*;
-use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
+use crate::constants::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use bevy::math::primitives::Rectangle;
+use bevy::prelude::*;
 use bevy::render::mesh::Mesh;
-use crate::constants::{SCREEN_WIDTH, SCREEN_HEIGHT};
-use rand::SeedableRng;
+use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use rand::Rng;
+use rand::SeedableRng;
 
 #[derive(Component)]
-pub struct Star { pub speed: f32 }
+pub struct Star {
+    pub speed: f32,
+}
 
 pub struct WorldPlugin;
 impl Plugin for WorldPlugin {
@@ -37,48 +39,75 @@ fn spawn_world(
     // Vignette borders
     let edge_thickness = 40.0;
     let z_vignette = 99.0;
-    let quad = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() }));
-    let mat_v = materials.add(ColorMaterial { color: Color::rgba(0.0, 0.0, 0.0, 0.18), ..default() });
+    let quad = meshes.add(Mesh::from(Rectangle {
+        half_size: Vec2::splat(0.5),
+        }));
+    let mat_v = materials.add(ColorMaterial {
+        color: Color::rgba(0.0, 0.0, 0.0, 0.18),
+        ..default()
+    });
 
     // Top
     commands.spawn(MaterialMesh2dBundle {
         mesh: Mesh2dHandle(quad.clone()),
         material: mat_v.clone(),
-        transform: Transform::from_translation(Vec3::new(0.0, SCREEN_HEIGHT / 2.0 - edge_thickness / 2.0, z_vignette))
-            .with_scale(Vec3::new(SCREEN_WIDTH, edge_thickness, 1.0)),
+        transform: Transform::from_translation(Vec3::new(
+            0.0,
+            SCREEN_HEIGHT / 2.0 - edge_thickness / 2.0,
+            z_vignette,
+        ))
+        .with_scale(Vec3::new(SCREEN_WIDTH, edge_thickness, 1.0)),
         ..default()
     });
     // Bottom
     commands.spawn(MaterialMesh2dBundle {
         mesh: Mesh2dHandle(quad.clone()),
         material: mat_v.clone(),
-        transform: Transform::from_translation(Vec3::new(0.0, -SCREEN_HEIGHT / 2.0 + edge_thickness / 2.0, z_vignette))
-            .with_scale(Vec3::new(SCREEN_WIDTH, edge_thickness, 1.0)),
+        transform: Transform::from_translation(Vec3::new(
+            0.0,
+            -SCREEN_HEIGHT / 2.0 + edge_thickness / 2.0,
+            z_vignette,
+        ))
+        .with_scale(Vec3::new(SCREEN_WIDTH, edge_thickness, 1.0)),
         ..default()
     });
     // Left
     commands.spawn(MaterialMesh2dBundle {
         mesh: Mesh2dHandle(quad.clone()),
         material: mat_v.clone(),
-        transform: Transform::from_translation(Vec3::new(-SCREEN_WIDTH / 2.0 + edge_thickness / 2.0, 0.0, z_vignette))
-            .with_scale(Vec3::new(edge_thickness, SCREEN_HEIGHT, 1.0)),
+        transform: Transform::from_translation(Vec3::new(
+            -SCREEN_WIDTH / 2.0 + edge_thickness / 2.0,
+            0.0,
+            z_vignette,
+        ))
+        .with_scale(Vec3::new(edge_thickness, SCREEN_HEIGHT, 1.0)),
         ..default()
     });
     // Right
     commands.spawn(MaterialMesh2dBundle {
         mesh: Mesh2dHandle(quad),
         material: mat_v,
-        transform: Transform::from_translation(Vec3::new(SCREEN_WIDTH / 2.0 - edge_thickness / 2.0, 0.0, z_vignette))
-            .with_scale(Vec3::new(edge_thickness, SCREEN_HEIGHT, 1.0)),
+        transform: Transform::from_translation(Vec3::new(
+            SCREEN_WIDTH / 2.0 - edge_thickness / 2.0,
+            0.0,
+            z_vignette,
+        ))
+        .with_scale(Vec3::new(edge_thickness, SCREEN_HEIGHT, 1.0)),
         ..default()
     });
 
     // Starfield
     let mut rng = rand::rngs::StdRng::seed_from_u64(42);
-    let star_mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::splat(0.5), ..Default::default() }));
+    let star_mesh = meshes.add(Mesh::from(Rectangle {
+        half_size: Vec2::splat(0.5),
+        }));
     for i in 0..180 {
         let use_blue = i % 6 == 0;
-        let color = if use_blue { Color::rgb(0.6, 0.7, 1.0) } else { Color::WHITE };
+        let color = if use_blue {
+            Color::rgb(0.6, 0.7, 1.0)
+        } else {
+            Color::WHITE
+        };
         let mat = materials.add(color);
         let speed = rng.gen_range(0.15..0.5);
         commands.spawn((

@@ -1,8 +1,8 @@
-use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
-use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use crate::core::{GamePhase, Muted};
 use crate::gameplay::player::Player;
+use bevy::prelude::*;
+use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
+use bevy::window::PrimaryWindow;
 
 #[derive(Resource, Default)]
 pub struct CursorPos {
@@ -12,18 +12,24 @@ pub struct CursorPos {
     pub world: Vec2,
 }
 
-fn pause_input(mut next_state: ResMut<NextState<GamePhase>>, kb: Res<ButtonInput<KeyCode>>, state: Res<State<GamePhase>>) {
+fn pause_input(
+    mut next_state: ResMut<NextState<GamePhase>>,
+    kb: Res<ButtonInput<KeyCode>>,
+    state: Res<State<GamePhase>>,
+) {
     if kb.just_pressed(KeyCode::KeyP) {
         match state.get() {
             GamePhase::Running => next_state.set(GamePhase::Paused),
             GamePhase::Paused => next_state.set(GamePhase::Running),
-            GamePhase::GameOver => {},
+            GamePhase::GameOver => {}
         }
     }
 }
 
 fn toggle_mute(kb: Res<ButtonInput<KeyCode>>, mut muted: ResMut<Muted>) {
-    if kb.just_pressed(KeyCode::KeyM) { muted.0 = !muted.0; }
+    if kb.just_pressed(KeyCode::KeyM) {
+        muted.0 = !muted.0;
+    }
 }
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
@@ -39,17 +45,19 @@ pub struct CursorReticle;
 pub struct InputPlugin;
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .init_resource::<CursorPos>()
+        app.init_resource::<CursorPos>()
             .init_resource::<InputActions>()
             .add_systems(Startup, spawn_cursor_reticle)
-            .add_systems(Update, (
-                update_cursor,
-                update_cursor_reticle,
-                map_mouse_to_actions,
-                toggle_mute,
-                pause_input,
-            ));
+            .add_systems(
+                Update,
+                (
+                    update_cursor,
+                    update_cursor_reticle,
+                    map_mouse_to_actions,
+                    toggle_mute,
+                    pause_input,
+                ),
+            );
     }
 }
 
@@ -79,22 +87,22 @@ fn update_cursor(
     }
 }
 
-fn map_mouse_to_actions(
-    mut actions: ResMut<InputActions>,
-    mouse: Res<ButtonInput<MouseButton>>,
-) {
+fn map_mouse_to_actions(mut actions: ResMut<InputActions>, mouse: Res<ButtonInput<MouseButton>>) {
     actions.fire_primary = mouse.pressed(MouseButton::Left);
     actions.fire_special = mouse.pressed(MouseButton::Right);
 }
 
 fn spawn_cursor_reticle(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>, 
+    mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     // Diamond discreto que combina com o tema (ciano)
     let mesh = meshes.add(crate::rendering::mesh_diamond());
-    let mat = materials.add(ColorMaterial { color: Color::rgba(0.35, 0.85, 1.0, 0.0), ..default() });
+    let mat = materials.add(ColorMaterial {
+        color: Color::rgba(0.35, 0.85, 1.0, 0.0),
+        ..default()
+    });
     commands.spawn((
         MaterialMesh2dBundle {
             mesh: Mesh2dHandle(mesh),
@@ -110,9 +118,9 @@ fn spawn_cursor_reticle(
 
 fn update_cursor_reticle(
     cursor: Res<CursorPos>,
-    q_player: Query<&GlobalTransform, With<Player>>, 
-    mut q_reticle: Query<(&mut Transform, &Handle<ColorMaterial>), With<CursorReticle>>, 
-    mut materials: ResMut<Assets<ColorMaterial>>, 
+    q_player: Query<&GlobalTransform, With<Player>>,
+    mut q_reticle: Query<(&mut Transform, &Handle<ColorMaterial>), With<CursorReticle>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
 ) {
     // Atualiza posição do retículo no mundo
@@ -128,7 +136,11 @@ fn update_cursor_reticle(
         }
         // Opacidade: some próximo da nave, sutil longe
         let near_radius = 24.0; // ~tamanho da nave
-        let mut alpha = if dist < near_radius { 0.0 } else { ((dist - near_radius) / 200.0).clamp(0.15, 0.45) };
+        let mut alpha = if dist < near_radius {
+            0.0
+        } else {
+            ((dist - near_radius) / 200.0).clamp(0.15, 0.45)
+        };
         // Ajuste extra para não ser gritante
         alpha = alpha.min(0.40);
         if let Some(mat) = materials.get_mut(mat_h) {
@@ -140,4 +152,3 @@ fn update_cursor_reticle(
         }
     }
 }
-

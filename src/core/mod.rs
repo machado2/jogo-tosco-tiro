@@ -1,13 +1,13 @@
-use bevy::prelude::*;
 use bevy::core_pipeline::bloom::BloomSettings;
 use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::prelude::*;
 use rand::random;
 
-pub mod state;
 pub mod resources;
+pub mod state;
 
+pub use resources::{EnemyPopulation, FrameCounter, Muted, Score, Shake};
 pub use state::GamePhase;
-pub use resources::{Score, FrameCounter, EnemyPopulation, Shake, Muted};
 
 use crate::gameplay::player::Player;
 
@@ -21,12 +21,7 @@ impl Plugin for CorePlugin {
         // Game flow systems
         app.add_systems(
             Update,
-            (
-                track_frames,
-                camera_shake,
-                check_game_over,
-            )
-                .run_if(in_state(GamePhase::Running)),
+            (track_frames, camera_shake, check_game_over).run_if(in_state(GamePhase::Running)),
         );
         app.add_systems(
             Update,
@@ -38,7 +33,10 @@ impl Plugin for CorePlugin {
 fn spawn_main_camera(mut commands: Commands) {
     commands.spawn((
         Camera2dBundle {
-            camera: Camera { hdr: true, ..default() },
+            camera: Camera {
+                hdr: true,
+                ..default()
+            },
             tonemapping: Tonemapping::Reinhard,
             ..default()
         },
@@ -71,10 +69,8 @@ fn check_game_over(
     time: Res<Time>,
 ) {
     // quando player não existe mais, inicia um delay (~1.5s) e então GameOver
-    if q_player.get_single().is_err() {
-        if local_timer.is_none() {
-            *local_timer = Some(Timer::from_seconds(1.5, TimerMode::Once));
-        }
+    if q_player.get_single().is_err() && local_timer.is_none() {
+        *local_timer = Some(Timer::from_seconds(1.5, TimerMode::Once));
     }
     if let Some(timer) = local_timer.as_mut() {
         timer.tick(time.delta());

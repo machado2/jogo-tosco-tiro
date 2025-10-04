@@ -1,0 +1,33 @@
+[build]
+target = "index.html"
+dist = "dist"
+public_url = "/"
+release = true
+filehash = true
+
+[watch]
+ignore = ["./dist"]
+
+[serve]
+address = "127.0.0.1"
+port = 8080
+open = false
+
+[clean]
+dist = "dist"
+
+# wasm-opt optimization settings for release builds
+[build.wasm_opt]
+level = "z"
+
+# Copy assets directory to dist
+[[hooks]]
+stage = "post_build"
+command = "sh"
+command_arguments = ["-c", "cp -r assets dist/assets 2>/dev/null || true"]
+
+# Copy favicon to dist
+[[hooks]]
+stage = "post_build"
+command = "sh"
+command_arguments = ["-c", "cp favicon.png dist/favicon.png 2>/dev/null || true"]

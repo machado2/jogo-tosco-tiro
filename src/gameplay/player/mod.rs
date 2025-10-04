@@ -1,13 +1,14 @@
-use bevy::prelude::*;
 use crate::constants::*;
-use crate::core::{Score, Shake, Muted, GamePhase};
-use crate::input::{CursorPos, InputActions};
-use crate::gameplay::components::{Health, Charge, Collider, Velocity, Lifetime, LaserFollowPlayer};
-use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
-use bevy::window::PrimaryWindow;
-use crate::audio::AudioEngine;
+use crate::core::{GamePhase, Muted, Score, Shake};
 use crate::effects::emit_burst;
 use crate::gameplay::combat::{spawn_missile, Bullet};
+use crate::gameplay::components::{
+    Charge, Collider, Health, LaserFollowPlayer, Lifetime, Velocity,
+};
+use crate::input::{CursorPos, InputActions};
+use bevy::prelude::*;
+use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
+use bevy::window::PrimaryWindow;
 
 #[derive(Component)]
 pub struct Player;
@@ -31,7 +32,17 @@ fn player_control(
     cursor: Res<CursorPos>,
     actions: Res<InputActions>,
     mut commands: Commands,
-    mut q_player: Query<(Entity, &mut Transform, &mut Health, &mut Charge, &Collider, &mut PlayerCooldowns), With<Player>>,
+    mut q_player: Query<
+        (
+            Entity,
+            &mut Transform,
+            &mut Health,
+            &mut Charge,
+            &Collider,
+            &mut PlayerCooldowns,
+        ),
+        With<Player>,
+    >,
     mut meshes: ResMut<Assets<bevy::render::mesh::Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     score: Res<Score>,
@@ -40,7 +51,10 @@ fn player_control(
     muted: Res<Muted>,
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {
-    let Ok((_entity, mut t, mut hp, mut charge, col, mut cooldowns)) = q_player.get_single_mut() else { return; };
+    let Ok((_entity, mut t, mut hp, mut charge, col, mut cooldowns)) = q_player.get_single_mut()
+    else {
+        return;
+    };
 
     let dt = time.delta();
     cooldowns.shoot.tick(dt);
@@ -86,7 +100,9 @@ fn player_control(
         if score.0 >= 500 {
             // laser
             let laser_color = Color::rgb(0.0, 1.0, 1.0);
-            let mesh = bevy::render::mesh::Mesh::from(bevy::math::primitives::Rectangle { half_size: Vec2::splat(0.5), ..Default::default() });
+            let mesh = bevy::render::mesh::Mesh::from(bevy::math::primitives::Rectangle {
+                half_size: Vec2::splat(0.5),
+                });
             let mesh_h = meshes.add(mesh);
             let mat_h = materials.add(laser_color);
             let y = t.translation.y + (SIZE_PLAYER.y / 2.0) - 10.0;
@@ -98,17 +114,33 @@ fn player_control(
                         .with_scale(Vec3::new(SIZE_LASER.x, SIZE_LASER.y, 1.0)),
                     ..default()
                 },
-                Bullet { friendly: true, damage: 2, laser: true },
-                Collider { w: SIZE_LASER.x, h: SIZE_LASER.y },
+                Bullet {
+                    friendly: true,
+                    damage: 2,
+                    laser: true,
+                },
+                Collider {
+                    w: SIZE_LASER.x,
+                    h: SIZE_LASER.y,
+                },
                 Velocity(Vec2::new(0.0, 0.0)),
                 LaserFollowPlayer,
-                Lifetime { timer: Timer::from_seconds(0.8, TimerMode::Once) },
+                Lifetime {
+                    timer: Timer::from_seconds(0.8, TimerMode::Once),
+                },
                 Name::new("Laser"),
             ));
             // aura glow como filho
             laser_e.with_children(|c| {
-                let glow_mesh = meshes.add(bevy::render::mesh::Mesh::from(bevy::math::primitives::Rectangle { half_size: Vec2::new(1.0, 6.0), ..Default::default() }));
-                let glow_mat = materials.add(ColorMaterial { color: Color::rgba(0.4, 2.4, 2.8, 0.6), ..default() });
+                let glow_mesh = meshes.add(bevy::render::mesh::Mesh::from(
+                    bevy::math::primitives::Rectangle {
+                        half_size: Vec2::new(1.0, 6.0),
+                        },
+                ));
+                let glow_mat = materials.add(ColorMaterial {
+                    color: Color::rgba(0.4, 2.4, 2.8, 0.6),
+                    ..default()
+                });
                 c.spawn(MaterialMesh2dBundle {
                     mesh: Mesh2dHandle(glow_mesh),
                     material: glow_mat,
@@ -117,12 +149,36 @@ fn player_control(
                 });
             });
             // partículas de muzzle flash
-            emit_burst(&mut commands, &mut meshes, &mut materials, Vec2::new(t.translation.x, y), Color::rgb(0.6, 1.0, 1.0), 10, 80.0..180.0, 0.02..0.06);
-            if !muted.0 { let level = (score.0 as f32).clamp(0.0, 3000.0); let end = 1000.0 + level * 0.2; audio.laser_sweep(500.0, end.min(2200.0)); }
+            emit_burst(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                Vec2::new(t.translation.x, y),
+                Color::rgb(0.6, 1.0, 1.0),
+                10,
+                80.0..180.0,
+                0.02..0.06,
+            );
+            if !muted.0 {
+                let level = (score.0 as f32).clamp(0.0, 3000.0);
+                let end = 1000.0 + level * 0.2;
+                audio.laser_sweep(500.0, end.min(2200.0));
+            }
         } else {
             // míssil
-            spawn_missile(&mut commands, &mut meshes, &mut materials, Vec2::new(t.translation.x, t.translation.y - 5.0), Vec2::new(0.0, 500.0), true);
-            if !muted.0 { let level = (score.0 as f32).clamp(0.0, 2000.0); let jitter: f32 = (rand::random::<f32>() - 0.5) * 0.1; audio.shoot_pitch(1.0 + level * 0.0003 + jitter); }
+            spawn_missile(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                Vec2::new(t.translation.x, t.translation.y - 5.0),
+                Vec2::new(0.0, 500.0),
+                true,
+            );
+            if !muted.0 {
+                let level = (score.0 as f32).clamp(0.0, 2000.0);
+                let jitter: f32 = (rand::random::<f32>() - 0.5) * 0.1;
+                audio.shoot_pitch(1.0 + level * 0.0003 + jitter);
+            }
         }
     }
 
@@ -132,23 +188,42 @@ fn player_control(
         if charge.value >= MAX_CHARGE {
             cooldowns.special = Timer::from_seconds(0.6, TimerMode::Once);
             charge.value = 0.0;
-            for a in (0..628).step_by(6) { // 0..2pi em passos ~0.06 rad
+            for a in (0..628).step_by(6) {
+                // 0..2pi em passos ~0.06 rad
                 let ang = a as f32 / 100.0;
                 let v = Vec2::new(ang.cos(), ang.sin()) * 600.0;
-                spawn_missile(&mut commands, &mut meshes, &mut materials, Vec2::new(t.translation.x, t.translation.y), v, true);
+                spawn_missile(
+                    &mut commands,
+                    &mut meshes,
+                    &mut materials,
+                    Vec2::new(t.translation.x, t.translation.y),
+                    v,
+                    true,
+                );
             }
             shake.intensity = 6.0;
             shake.frames = 50;
-            if !muted.0 { audio.special(); }
+            if !muted.0 {
+                audio.special();
+            }
         } else if charge.value >= 150.0 {
             cooldowns.special = Timer::from_seconds(0.25, TimerMode::Once);
             charge.value -= 50.0;
             for a in (0..628).step_by(20) {
                 let ang = a as f32 / 100.0;
                 let v = Vec2::new(ang.cos(), ang.sin()) * 400.0;
-                spawn_missile(&mut commands, &mut meshes, &mut materials, Vec2::new(t.translation.x, t.translation.y), v, true);
+                spawn_missile(
+                    &mut commands,
+                    &mut meshes,
+                    &mut materials,
+                    Vec2::new(t.translation.x, t.translation.y),
+                    v,
+                    true,
+                );
             }
-            if !muted.0 { audio.special(); }
+            if !muted.0 {
+                audio.special();
+            }
         }
     }
 }
