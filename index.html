@@ -2,32 +2,123 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Jogo Tosco Tiro - A space shooter game">
     <title>Jogo Tosco Tiro</title>
     <link data-trunk rel="icon" href="favicon.png">
     <link data-trunk rel="copy-dir" href="assets">
     <style>
-        body {
+        * {
             margin: 0;
             padding: 0;
-            width: 100vw;
-            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #0a0a0f;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        body {
             display: flex;
             justify-content: center;
             align-items: center;
-            background: #000;
-            overflow: hidden;
         }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
         canvas {
             display: block;
             max-width: 100%;
             max-height: 100%;
+            width: auto;
+            height: auto;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
+        }
+
+        #loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: #0a0a0f;
+            z-index: 1000;
+            transition: opacity 0.3s ease-out;
+        }
+
+        #loading.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #00ffff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #loading-text {
+            margin-top: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            letter-spacing: 1px;
+        }
+
+        @media (max-width: 768px) {
+            canvas {
+                width: 100vw;
+                height: 100vh;
+                object-fit: contain;
+            }
         }
     </style>
 </head>
 <body>
-    <canvas id="bevy"></canvas>
+    <div id="game-container">
+        <div id="loading">
+            <div class="spinner"></div>
+            <div id="loading-text">LOADING...</div>
+        </div>
+        <canvas id="bevy"></canvas>
+    </div>
+
+    <script type="module">
+        import init from './jogo_tosco_tiro.js';
+
+        async function run() {
+            try {
+                await init();
+                document.getElementById('loading').classList.add('hidden');
+            } catch (error) {
+                console.error('Failed to initialize game:', error);
+                document.getElementById('loading-text').textContent = 'FAILED TO LOAD';
+            }
+        }
+
+        run();
+    </script>
 </body>
 </html>
