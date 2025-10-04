@@ -2270,6 +2270,8 @@ dependencies = [
  "bevy_egui",
  "rand",
  "rodio",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
