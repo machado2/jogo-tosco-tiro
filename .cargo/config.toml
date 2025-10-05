@@ -1,0 +1,9 @@
+# Cargo configuration for WASM builds
+# Enables the getrandom backend for WebAssembly via wasm-bindgen
+# Also enables web_sys_unstable_apis to use Navigator.clipboard et al.
+
+[target.wasm32-unknown-unknown]
+rustflags = [
+    "--cfg", "getrandom_backend=\"wasm_js\"",
+    "--cfg", "web_sys_unstable_apis"
+]

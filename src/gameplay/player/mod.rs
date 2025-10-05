@@ -162,7 +162,7 @@ fn player_control(
             if !muted.0 {
                 let level = (score.0 as f32).clamp(0.0, 3000.0);
                 let end = 1000.0 + level * 0.2;
-                audio.laser_sweep(500.0, end.min(2200.0));
+                audio.as_ref().laser_sweep(500.0, end.min(2200.0));
             }
         } else {
             // míssil
@@ -177,7 +177,7 @@ fn player_control(
             if !muted.0 {
                 let level = (score.0 as f32).clamp(0.0, 2000.0);
                 let jitter: f32 = (rand::random::<f32>() - 0.5) * 0.1;
-                audio.shoot_pitch(1.0 + level * 0.0003 + jitter);
+                audio.as_ref().shoot_pitch(1.0 + level * 0.0003 + jitter);
             }
         }
     }
@@ -204,7 +204,7 @@ fn player_control(
             shake.intensity = 6.0;
             shake.frames = 50;
             if !muted.0 {
-                audio.special();
+                audio.as_ref().special();
             }
         } else if charge.value >= 150.0 {
             cooldowns.special = Timer::from_seconds(0.25, TimerMode::Once);
@@ -222,7 +222,7 @@ fn player_control(
                 );
             }
             if !muted.0 {
-                audio.special();
+                audio.as_ref().special();
             }
         }
     }

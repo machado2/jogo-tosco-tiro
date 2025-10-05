@@ -273,7 +273,7 @@ fn engine_flame_pulse(
         if ef.timer.just_finished() {
             if let Some(mat) = materials.get_mut(mat_h) {
                 // pequeno pulso emissivo (simulado via cor)
-                let t = (std::time::Instant::now().elapsed().as_secs_f32() * 6.0).sin() * 0.3 + 0.7;
+                let t = (time.elapsed_seconds() * 6.0).sin() * 0.3 + 0.7;
                 mat.color = Color::rgba(1.8 * t, 0.9 * t, 0.4 * t, 0.9);
             }
         }

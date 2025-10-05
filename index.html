@@ -105,20 +105,20 @@
         <canvas id="bevy"></canvas>
     </div>
 
-    <script type="module">
-        import init from './jogo_tosco_tiro.js';
-
-        async function run() {
-            try {
-                await init();
-                document.getElementById('loading').classList.add('hidden');
-            } catch (error) {
-                console.error('Failed to initialize game:', error);
-                document.getElementById('loading-text').textContent = 'FAILED TO LOAD';
-            }
-        }
-
-        run();
+    <script>
+        // Hide loading overlay once the Bevy canvas is initialized
+        (function(){
+            const loadingEl = document.getElementById('loading');
+            const canvasEl = document.getElementById('bevy');
+            const interval = setInterval(() => {
+                if (canvasEl && canvasEl.width && canvasEl.height) {
+                    loadingEl.classList.add('hidden');
+                    clearInterval(interval);
+                }
+            }, 150);
+            // Safety timeout in case initialization is delayed
+            setTimeout(() => loadingEl.classList.add('hidden'), 10000);
+        })();
     </script>
 </body>
 </html>

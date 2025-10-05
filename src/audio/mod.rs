@@ -117,6 +117,10 @@ mod wasm_impl {
         context: Option<AudioContext>,
     }
 
+    // SAFETY: Bevy runs single-threaded on wasm and WebAudio is accessed on main thread.
+    unsafe impl Send for AudioEngine {}
+    unsafe impl Sync for AudioEngine {}
+
     impl AudioEngine {
         pub fn new() -> Self {
             let context = AudioContext::new().ok();

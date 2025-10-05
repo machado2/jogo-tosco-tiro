@@ -272,8 +272,8 @@ fn collisions_and_damage(
                     }
                     removed_enemies.insert(ee);
                     if !muted.0 {
-                        audio.explosion();
-                    }
+                    audio.as_ref().explosion();
+                }
                 } else {
                     // Bullet impact particles
                     emit_bullet_impact_burst(
@@ -324,7 +324,7 @@ fn collisions_and_damage(
                 shake.intensity = 3.0;
                 shake.frames = 12;
                 if !muted.0 {
-                    audio.hit();
+                    audio.as_ref().hit();
                 }
                 if eh.hp <= 0 {
                     // Enhanced enemy explosion
@@ -344,8 +344,8 @@ fn collisions_and_damage(
                         EnemyKind::Special => 20,
                     };
                     if !muted.0 {
-                        audio.explosion();
-                    }
+                    audio.as_ref().explosion();
+                }
                 }
                 // não continue checando esse inimigo este frame
             }
@@ -392,7 +392,7 @@ fn collisions_and_damage(
                 }
                 removed_bullets.insert(be);
                 if !muted.0 {
-                    audio.hit();
+                    audio.as_ref().hit();
                 }
 
                 // Spawn damage vignette

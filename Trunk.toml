@@ -23,11 +23,11 @@ level = "z"
 # Copy assets directory to dist
 [[hooks]]
 stage = "post_build"
-command = "sh"
-command_arguments = ["-c", "cp -r assets dist/assets 2>/dev/null || true"]
+command = "powershell"
+command_arguments = ["-NoProfile", "-Command", "Copy-Item -Recurse -Force assets dist/assets"]
 
 # Copy favicon to dist
 [[hooks]]
 stage = "post_build"
-command = "sh"
-command_arguments = ["-c", "cp favicon.png dist/favicon.png 2>/dev/null || true"]
+command = "powershell"
+command_arguments = ["-NoProfile", "-Command", "Copy-Item -Force favicon.png dist/favicon.png"]
