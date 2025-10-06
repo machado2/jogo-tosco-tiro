@@ -127,7 +127,8 @@ class Player extends Entity {
         if (gameState.rightButton && this.charge >= MAX_CHARGE && this.shootTime) { this.pulse(); this.charge = 0; this.shootTime = 0; audioSystem.playSpecial(); }
         if (gameState.rightButton && this.charge >= 150 && this.shootTime > 50) { this.pulse(0.3); this.charge -= 50; this.shootTime = 0; audioSystem.playSpecial(); }
         if (this.charge >= MAX_CHARGE && this.energy < MAX_HEALTH && temporizes(10)) this.energy++;
-        if (engineFlamesEnabled && temporizes(2)) debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2 - 4));
+        // Removido efeito de partícula/flame sob a nave
+        // if (engineFlamesEnabled && temporizes(2)) debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2 - 4));
         gameState.playerHealth = this.energy; gameState.playerCharge = this.charge; gameState.playerX = this.x; gameState.playerY = this.y;
         this.updateMeshPosition();
     }
@@ -144,8 +145,8 @@ class Missile extends Entity {
         this.dirX = Math.abs(this.dirX); this.dirY = Math.abs(this.dirY);
         this.restoX = 0; this.restoY = 0; this.releaseDebris = 4; this.friendly = friendly;
         this.mesh = BABYLON.MeshBuilder.CreateSphere("missile", { diameter: 1 }, scene);
-        const color = friendly ? new BABYLON.Color3(0, 0.6, 1) : new BABYLON.Color3(1, 0.2, 0);
-        this.mesh.material = createMaterial(friendly ? "friendlyMissile" : "enemyMissile", color);
+        const color = friendly ? new BABYLON.Color3(0.0, 0.7, 1.0) : new BABYLON.Color3(1.0, 0.3, 0.1);
+        this.mesh.material = createPBRMetalMaterial(friendly ? "friendlyMissile" : "enemyMissile", color, null, 0.03);
         this.mesh.renderingGroupId = 1; fitMeshToPixels(this.mesh, this.width, this.height); this.updateMeshPosition();
     }
     update() {
@@ -221,7 +222,8 @@ class Enemy extends Entity {
         if (this.x + 20 > SCREEN_WIDTH) { this.movement = 2; this.distance = 10; }
         if (this.x - 20 < 0) { this.movement = 3; this.distance = 10; }
         if (!this.shootTime) { this.shootTime = random(180) + 20; enemyEntities.push(new Missile(this.x - 9, this.y + 20, 0, 3, false)); enemyEntities.push(new Missile(this.x + 9, this.y + 20, 0, 3, false)); } else { this.shootTime--; }
-        if (engineFlamesEnabled && temporizes(6)) debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2));
+        // Removido efeito de partícula/flame sob a nave inimiga
+        // if (engineFlamesEnabled && temporizes(6)) debrisEntities.push(new EngineFlame(this.x, this.y + this.height / 2));
         const vx = this.x - oldX; const vy = this.y - oldY; if (this.mesh) { this.mesh.rotation.z = BABYLON.Scalar.Lerp(this.mesh.rotation.z || 0, -vx * 0.04, 0.15); this.mesh.rotation.x = BABYLON.Scalar.Lerp(this.mesh.rotation.x || 0, vy * 0.03, 0.15); }
         this.updateMeshPosition();
     }
