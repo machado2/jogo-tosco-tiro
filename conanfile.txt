@@ -2,4 +2,5 @@
 sdl/2.0.14
 
 [generators]
-cmake
+CMakeDeps
+CMakeToolchain
