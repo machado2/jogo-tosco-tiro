@@ -161,6 +161,7 @@ fn main() {
                 title: "Jogo Tosco de dar Tiro (Rust + Bevy)".into(),
                 resolution: (SCREEN_WIDTH, SCREEN_HEIGHT).into(),
                 resizable: true,
+                canvas: Some("#bevy".to_string()), // Use o canvas existente no index.html
                 ..default()
             }),
             ..default()

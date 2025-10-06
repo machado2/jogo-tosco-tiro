@@ -24,7 +24,7 @@ level = "z"
 [[hooks]]
 stage = "post_build"
 command = "powershell"
-command_arguments = ["-NoProfile", "-Command", "Copy-Item -Recurse -Force assets dist/assets"]
+command_arguments = ["-NoProfile", "-Command", "if (Test-Path assets) { Copy-Item -Recurse -Force assets dist/assets }"]
 
 # Copy favicon to dist
 [[hooks]]
