@@ -52,6 +52,13 @@ class Entity {
                 debrisEntities.push(new Debris(this.x, this.y));
                 totalDebrisCount++;
             }
+            // Play destruction audio based on debris amount only if onDestroy not overridden
+            try {
+                if (audioSystem && audioSystem.initialized && this.onDestroy === Entity.prototype.onDestroy) {
+                    if (toEmit >= 60) audioSystem.playExplosionBig();
+                    else audioSystem.playExplosion();
+                }
+            } catch {}
         }
         if (this.mesh) { this.mesh.dispose(); this.mesh = null; }
     }

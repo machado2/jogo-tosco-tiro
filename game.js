@@ -50,12 +50,14 @@ let engineFlamesEnabled = true;
 function initDebrisPool() {
     if (debrisBaseMesh) return;
     debrisBaseMesh = BABYLON.MeshBuilder.CreateBox("debrisBase", { size: 0.5 }, scene);
+    debrisBaseMesh.isPickable = false;
     debrisMaterial = new BABYLON.StandardMaterial("debrisMat", scene);
     debrisMaterial.emissiveColor = new BABYLON.Color3(1, 1, 1);
     debrisMaterial.disableLighting = true;
+    debrisMaterial.backFaceCulling = false;
     debrisBaseMesh.material = debrisMaterial;
     debrisBaseMesh.renderingGroupId = 1; // above background
-    debrisBaseMesh.setEnabled(false);
+    debrisBaseMesh.visibility = 0; // hide base mesh but keep instances visible
 }
 
 // fitMeshToPixels moved to visuals.js
@@ -207,6 +209,10 @@ function createScene() {
     camera.orthoRight = SCREEN_WIDTH / 2;
     camera.orthoTop = SCREEN_HEIGHT / 2;
     camera.orthoBottom = -SCREEN_HEIGHT / 2;
+    
+    // Set explicit near/far planes to ensure stars are visible
+    camera.minZ = 0.1;
+    camera.maxZ = 100;
 
     // Simple ambient setup
     const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);

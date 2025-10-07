@@ -2,46 +2,50 @@
 class Starfield {
   constructor(count = 250) {
     this.stars = [];
-    // Two base star planes to allow color variation without per-instance material set
-    const baseWhite = BABYLON.MeshBuilder.CreatePlane("starBaseWhite", { size: 1 }, scene);
-    baseWhite.isPickable = false;
-    baseWhite.billboardMode = BABYLON.AbstractMesh.BILLBOARDMODE_ALL;
-    baseWhite.renderingGroupId = 0; // background group
-    const matWhite = new BABYLON.StandardMaterial("starMatWhite", scene);
-    matWhite.emissiveColor = new BABYLON.Color3(1, 1, 1);
-    matWhite.disableLighting = true;
-    baseWhite.material = matWhite;
-    baseWhite.isVisible = false;
-
-    const baseBlue = baseWhite.clone("starBaseBlue");
-    baseBlue.material = matWhite.clone("starMatBlue");
-    baseBlue.material.emissiveColor = new BABYLON.Color3(0.6, 0.7, 1);
-    baseBlue.isVisible = false;
-
+    
     for (let i = 0; i < count; i++) {
-      const useBlue = (i % 6 === 0);
-      const base = useBlue ? baseBlue : baseWhite;
-      const inst = base.createInstance("starInst" + i);
-      inst.setEnabled(true);
-      inst.isPickable = false;
-      inst.renderingGroupId = 0;
-      inst.position.x = Math.random() * SCREEN_WIDTH - SCREEN_WIDTH / 2;
-      inst.position.y = Math.random() * SCREEN_HEIGHT - SCREEN_HEIGHT / 2;
-      inst.scaling.x = inst.scaling.y = 2.0 + Math.random() * 2.0; // 2–4 px stars for visibility
-      const speed = 0.15 + Math.random() * 0.35; // slower for depth
-      this.stars.push({ mesh: inst, speed });
+      const size = 0.5 + Math.random() * 1.5;
+      
+      // Create star mesh
+      const star = BABYLON.MeshBuilder.CreateSphere(`star_${i}`, { diameter: size }, scene);
+      
+      // Try a simple bright diffuse material instead of emissive
+      const material = new BABYLON.StandardMaterial(`starMat_${i}`, scene);
+      if (Math.random() < 0.3) {
+          // Blue stars - very bright
+          material.diffuseColor = new BABYLON.Color3(0.5, 0.8, 1.0);
+          material.emissiveColor = new BABYLON.Color3(0.2, 0.4, 0.8);
+      } else {
+          // White stars - very bright  
+          material.diffuseColor = new BABYLON.Color3(1.0, 1.0, 1.0);
+          material.emissiveColor = new BABYLON.Color3(0.8, 0.8, 0.8);
+      }
+      
+      // Make sure material is unlit (self-illuminated)
+      material.disableLighting = true;
+      
+      star.material = material;
+      star.position.x = Math.random() * SCREEN_WIDTH - SCREEN_WIDTH / 2;
+      star.position.y = Math.random() * SCREEN_HEIGHT - SCREEN_HEIGHT / 2;
+      star.position.z = -5; // Behind other objects but in front of camera
+      star.renderingGroupId = 0; // Background layer
+      
+      this.stars.push({ mesh: star, speed: Math.random() * 2 + 1 });
     }
   }
 
   update() {
-    const bottom = -SCREEN_HEIGHT / 2;
-    const top = SCREEN_HEIGHT / 2;
-    for (const s of this.stars) {
-      s.mesh.position.y -= s.speed;
-      if (s.mesh.position.y < bottom) {
-        s.mesh.position.y = top;
-        s.mesh.position.x = Math.random() * SCREEN_WIDTH - SCREEN_WIDTH / 2;
-      }
+        for (let i = 0; i < this.stars.length; i++) {
+            const star = this.stars[i];
+            // Move stars downward for vertical scroller
+            star.mesh.position.y -= star.speed;
+            
+            // Wrap around when stars go off the bottom of the screen
+            if (star.mesh.position.y < -SCREEN_HEIGHT / 2 - 10) {
+                star.mesh.position.y = SCREEN_HEIGHT / 2 + 10;
+                star.mesh.position.x = Math.random() * SCREEN_WIDTH - SCREEN_WIDTH / 2;
+                star.mesh.position.z = -5; // Reset Z position when wrapping
+            }
+        }
     }
-  }
 }
