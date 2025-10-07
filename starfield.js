@@ -11,12 +11,12 @@ class Starfield {
     matWhite.emissiveColor = new BABYLON.Color3(1, 1, 1);
     matWhite.disableLighting = true;
     baseWhite.material = matWhite;
-    baseWhite.setEnabled(false);
+    baseWhite.isVisible = false;
 
     const baseBlue = baseWhite.clone("starBaseBlue");
     baseBlue.material = matWhite.clone("starMatBlue");
     baseBlue.material.emissiveColor = new BABYLON.Color3(0.6, 0.7, 1);
-    baseBlue.setEnabled(false);
+    baseBlue.isVisible = false;
 
     for (let i = 0; i < count; i++) {
       const useBlue = (i % 6 === 0);
@@ -27,7 +27,7 @@ class Starfield {
       inst.renderingGroupId = 0;
       inst.position.x = Math.random() * SCREEN_WIDTH - SCREEN_WIDTH / 2;
       inst.position.y = Math.random() * SCREEN_HEIGHT - SCREEN_HEIGHT / 2;
-      inst.scaling.x = inst.scaling.y = 0.2 + Math.random() * 0.6; // smaller stars
+      inst.scaling.x = inst.scaling.y = 2.0 + Math.random() * 2.0; // 2–4 px stars for visibility
       const speed = 0.15 + Math.random() * 0.35; // slower for depth
       this.stars.push({ mesh: inst, speed });
     }
